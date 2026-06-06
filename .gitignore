@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+worker-configuration.d.ts
+coverage/
+.codex-temp/
+*.log
+*.tsbuildinfo

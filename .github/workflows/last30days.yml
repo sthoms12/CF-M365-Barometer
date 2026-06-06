@@ -1,0 +1,59 @@
+name: Last30Days Product Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      analysis_run_id:
+        description: Analysis run ID created by the Cloudflare Worker
+        required: true
+        type: string
+      api_base_url:
+        description: Public base URL of the Cloudflare Worker
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: last30days-${{ inputs.analysis_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install collector dependencies
+        run: python -m pip install --disable-pip-version-check yt-dlp
+
+      - name: Check out pinned Last30Days engine
+        run: |
+          mkdir -p vendor/last30days
+          git -C vendor/last30days init
+          git -C vendor/last30days remote add origin https://github.com/mvanhorn/last30days-skill.git
+          git -C vendor/last30days fetch --depth 1 origin 26da1e157cc83aba5b782fd3662627535e81bbc7
+          git -C vendor/last30days checkout --detach FETCH_HEAD
+
+      - name: Run automated collection and ingest
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url }}
+          ANALYSIS_RUN_ID: ${{ inputs.analysis_run_id }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          SCRAPECREATORS_API_KEY: ${{ secrets.SCRAPECREATORS_API_KEY }}
+          INCLUDE_SOURCES: ${{ vars.INCLUDE_SOURCES }}
+          LAST30DAYS_CONFIG_DIR: ""
+          LAST30DAYS_MEMORY_DIR: ${{ runner.temp }}/last30days-results
+        run: node scripts/collector.mjs

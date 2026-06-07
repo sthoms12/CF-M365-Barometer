@@ -2,6 +2,9 @@
 
 M365 Barometer is a Cloudflare-native public dashboard that automatically monitors recent public discussion about Microsoft 365 products.
 
+For the live production state, remaining work, and exact resume steps, see
+[Production Handoff](docs/PRODUCTION_HANDOFF.md).
+
 ## Architecture
 
 - One Cloudflare Worker serves the API, scheduled handler, and React static assets.

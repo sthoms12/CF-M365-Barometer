@@ -58,7 +58,6 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$INGEST_TOKEN"
           test -n "$WORKER_GITHUB_TOKEN"
-          test -n "$PUBLIC_BASE_URL"
 
       - name: Find or create D1 database
         id: d1
@@ -91,4 +90,9 @@ jobs:
 
       - name: Smoke test
         shell: bash
-        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 "$PUBLIC_BASE_URL/api/health"
+        run: |
+          if [ -n "$PUBLIC_BASE_URL" ]; then
+            curl --fail --silent --show-error --retry 5 --retry-delay 5 "$PUBLIC_BASE_URL/api/health"
+          else
+            echo "PUBLIC_BASE_URL is not configured; skipping smoke test until the first deployment URL is known."
+          fi

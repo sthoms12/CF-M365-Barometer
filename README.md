@@ -49,7 +49,7 @@ configures Worker secrets, and smoke-tests the public health endpoint.
 
 3. Add these GitHub Actions repository variables:
 
-- `PUBLIC_BASE_URL`: The production origin, without a trailing slash.
+- `PUBLIC_BASE_URL`: The production origin, without a trailing slash. This can be added after the first deployment.
 - `CLOUDFLARE_DEPLOY_ENABLED`: Set to `true` only after the secrets above are configured.
 - `CUSTOM_DOMAIN`: Optional custom hostname. When set, deployment disables `workers.dev`.
 - `ACCESS_TEAM_DOMAIN`: Required before enabling the admin surface.
@@ -58,6 +58,7 @@ configures Worker secrets, and smoke-tests the public health endpoint.
 
 4. Optionally add `BRAVE_API_KEY`, `XAI_API_KEY`, and `SCRAPECREATORS_API_KEY` as GitHub Actions secrets.
 5. Push to `main` or manually run the `Deploy Cloudflare` workflow.
+6. After the first deployment, set `PUBLIC_BASE_URL` to the deployed origin and rerun the workflow.
 
 Until `CLOUDFLARE_DEPLOY_ENABLED=true`, pushes still run the full check and build job but skip deployment.
 

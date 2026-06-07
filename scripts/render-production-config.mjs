@@ -9,6 +9,7 @@ const config = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
 config.d1_databases[0].database_id = process.env.D1_DATABASE_ID;
 config.vars.ACCESS_TEAM_DOMAIN = process.env.ACCESS_TEAM_DOMAIN || "access-not-configured.invalid";
 config.vars.ACCESS_AUD = process.env.ACCESS_AUD || "access-not-configured";
+if (process.env.PUBLIC_BASE_URL) config.vars.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL.replace(/\/$/, "");
 config.workers_dev = !process.env.CUSTOM_DOMAIN;
 config.preview_urls = false;
 

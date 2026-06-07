@@ -10,7 +10,12 @@ import {
 } from "./metrics";
 import { getPreviousScore, getProductRow } from "./db";
 
-type AiTextResponse = { response?: string };
+type AiTextResponse = { response?: unknown };
+
+export function parseAiAnalysisResponse(response: unknown): AiAnalysis {
+  if (!response) throw new Error("Workers AI returned no response");
+  return aiAnalysisSchema.parse(typeof response === "string" ? JSON.parse(response) : response);
+}
 
 async function runAi(env: Env, productName: string, evidence: EvidenceItem[]): Promise<AiAnalysis> {
   const prompt = [
@@ -53,8 +58,7 @@ async function runAi(env: Env, productName: string, evidence: EvidenceItem[]): P
     },
   }) as AiTextResponse;
 
-  if (!result.response) throw new Error("Workers AI returned no response");
-  return aiAnalysisSchema.parse(JSON.parse(result.response));
+  return parseAiAnalysisResponse(result.response);
 }
 
 async function analyzeWithRetry(env: Env, productName: string, evidence: EvidenceItem[]) {

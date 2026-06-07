@@ -7,10 +7,6 @@ on:
         description: Analysis run ID created by the Cloudflare Worker
         required: true
         type: string
-      api_base_url:
-        description: Public base URL of the Cloudflare Worker
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -47,7 +43,7 @@ jobs:
 
       - name: Run automated collection and ingest
         env:
-          API_BASE_URL: ${{ inputs.api_base_url }}
+          API_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
           ANALYSIS_RUN_ID: ${{ inputs.analysis_run_id }}
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}

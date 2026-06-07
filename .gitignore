@@ -4,6 +4,7 @@ dist/
 .dev.vars
 .env
 worker-configuration.d.ts
+wrangler.production.jsonc
 coverage/
 .codex-temp/
 *.log

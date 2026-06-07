@@ -25,7 +25,6 @@
     "GITHUB_OWNER": "sthoms12",
     "GITHUB_REPO": "CF-M365-Barometer",
     "GITHUB_WORKFLOW": "last30days.yml",
-    "PUBLIC_BASE_URL": "http://localhost:5173",
     "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     "ACCESS_TEAM_DOMAIN": "replace-with-team-name.cloudflareaccess.com",
     "ACCESS_AUD": "replace-with-access-application-audience-tag"

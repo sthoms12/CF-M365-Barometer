@@ -35,25 +35,31 @@ Local mode serves public, admin, Cron, and D1 behavior. Workers AI is remote-onl
 
 ## Production Setup
 
-1. Create the D1 database and update `wrangler.jsonc`.
-2. Set Worker secrets:
+Production deploys run from `.github/workflows/deploy.yml` after every push to `main`.
+The workflow creates the D1 database when needed, applies migrations, deploys the Worker,
+configures Worker secrets, and smoke-tests the public health endpoint.
 
-```powershell
-npx wrangler secret put INGEST_TOKEN
-npx wrangler secret put GITHUB_TOKEN
-```
+1. Create a fine-grained GitHub token that can dispatch Actions workflows for this repository.
+2. Add these GitHub Actions repository secrets:
 
-3. Add the same `INGEST_TOKEN` as a GitHub Actions repository secret.
+- `CLOUDFLARE_API_TOKEN`: Cloudflare token with Workers Scripts, D1, and Workers AI permissions.
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID.
+- `INGEST_TOKEN`: A separate long random token shared by the Worker and collector workflow.
+- `WORKER_GITHUB_TOKEN`: The fine-grained GitHub token used by the Worker.
+
+3. Add these GitHub Actions repository variables:
+
+- `PUBLIC_BASE_URL`: The production origin, without a trailing slash.
+- `CLOUDFLARE_DEPLOY_ENABLED`: Set to `true` only after the secrets above are configured.
+- `CUSTOM_DOMAIN`: Optional custom hostname. When set, deployment disables `workers.dev`.
+- `ACCESS_TEAM_DOMAIN`: Required before enabling the admin surface.
+- `ACCESS_AUD`: Required before enabling the admin surface.
+- `INCLUDE_SOURCES`: Optional collector source selection.
+
 4. Optionally add `BRAVE_API_KEY`, `XAI_API_KEY`, and `SCRAPECREATORS_API_KEY` as GitHub Actions secrets.
-5. Set the GitHub Actions variable `INCLUDE_SOURCES` only when optional sources are configured.
-6. Apply migrations and deploy:
+5. Push to `main` or manually run the `Deploy Cloudflare` workflow.
 
-```powershell
-npx wrangler d1 migrations apply m365-barometer --remote
-npm run deploy
-```
-
-7. Update `PUBLIC_BASE_URL` in `wrangler.jsonc` to the deployed Worker URL and deploy again.
+Until `CLOUDFLARE_DEPLOY_ENABLED=true`, pushes still run the full check and build job but skip deployment.
 
 The Cron Trigger runs daily at `06:15 UTC` and dispatches at most three due products. Each successful product analysis schedules its next run seven days later.
 

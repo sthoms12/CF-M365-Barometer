@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm run build && wrangler dev --local --port 5173 --test-scheduled",
     "build": "tsc -b && vite build",
+    "config:production": "node scripts/render-production-config.mjs",
     "deploy": "npm run build && wrangler deploy",
     "types": "wrangler types",
     "check": "npm run types && tsc -b --pretty false && vitest run",

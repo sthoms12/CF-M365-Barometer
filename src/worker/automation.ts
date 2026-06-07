@@ -27,7 +27,6 @@ export async function dispatchGithubRun(env: Env, runId: string): Promise<void> 
         ref: "main",
         inputs: {
           analysis_run_id: runId,
-          api_base_url: env.PUBLIC_BASE_URL,
         },
       }),
     },

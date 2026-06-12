@@ -18,12 +18,6 @@ type AdminProduct = ProductSummary & {
   sourceConfig: Record<string, unknown>;
 };
 
-type AiQuotaStatus = {
-  limited: boolean;
-  resetAt: string | null;
-  message: string | null;
-};
-
 const blankProduct = {
   name: "",
   slug: "",
@@ -35,21 +29,18 @@ const blankProduct = {
 export function AdminPage() {
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
-  const [aiQuota, setAiQuota] = useState<AiQuotaStatus>({ limited: false, resetAt: null, message: null });
   const [form, setForm] = useState(blankProduct);
   const [editing, setEditing] = useState<AdminProduct | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   async function load() {
     try {
-      const [productData, runData, aiQuotaData] = await Promise.all([
+      const [productData, runData] = await Promise.all([
         api<{ products: AdminProduct[] }>("/admin/api/products"),
         api<{ runs: Run[] }>("/admin/api/analysis-runs"),
-        api<AiQuotaStatus>("/admin/api/ai-status"),
       ]);
       setProducts(productData.products);
       setRuns(runData.runs);
-      setAiQuota(aiQuotaData);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load admin data");
@@ -104,18 +95,10 @@ export function AdminPage() {
         <div><p className="eyebrow">Operations</p><h1>Monitoring control room</h1><p>Manage the tracked portfolio and automated analysis runs.</p></div>
         <div className="admin-actions">
           <button onClick={() => void load()} aria-label="Refresh admin data"><RefreshCw size={17} /></button>
-          <button className="primary-button" disabled={Boolean(busy) || aiQuota.limited} onClick={() => void action("all", () => api("/admin/api/analysis-runs/all", { method: "POST" }))}><Play size={16} /> Analyze all active</button>
+          <button className="primary-button" disabled={Boolean(busy)} onClick={() => void action("all", () => api("/admin/api/analysis-runs/all", { method: "POST" }))}><Play size={16} /> Analyze all active</button>
         </div>
       </div>
       {error && <p className="error-banner">{error}</p>}
-      {aiQuota.limited && (
-        <div className="quota-banner" role="alert">
-          <strong>Workers AI daily free-tier limit reached.</strong>
-          <span>
-            Analysis triggers are paused until {aiQuota.resetAt ? formatDate(aiQuota.resetAt) : "the next UTC daily reset"}.
-          </span>
-        </div>
-      )}
       <section className="admin-section">
         <div className="section-heading"><div><h2>Tracked products</h2><p>Disabled products remain in history but stop receiving scheduled analyses.</p></div></div>
         <div className="admin-table-wrap">
@@ -129,7 +112,7 @@ export function AdminPage() {
                   <td>{formatDate(product.lastAnalyzedAt)}</td>
                   <td>{formatDate(product.nextAnalysisAt)}</td>
                   <td><div className="row-actions">
-                    <button title={aiQuota.limited ? "Workers AI daily limit reached" : "Trigger analysis"} disabled={Boolean(busy) || aiQuota.limited} onClick={() => void action(product.id, () => api(`/admin/api/products/${product.id}/analyze`, { method: "POST" }))}><Play size={16} /></button>
+                    <button title="Trigger analysis" disabled={Boolean(busy)} onClick={() => void action(product.id, () => api(`/admin/api/products/${product.id}/analyze`, { method: "POST" }))}><Play size={16} /></button>
                     <button title="Edit product" disabled={Boolean(busy)} onClick={() => editProduct(product)}><Pencil size={16} /></button>
                     <button title={product.isActive ? "Disable product" : "Enable product"} disabled={Boolean(busy)} onClick={() => void action(`toggle-${product.id}`, () => api(`/admin/api/products/${product.id}/${product.isActive ? "disable" : "enable"}`, { method: "POST" }))}>{product.isActive ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}</button>
                   </div></td>

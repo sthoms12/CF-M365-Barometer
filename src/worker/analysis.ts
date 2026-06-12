@@ -9,6 +9,7 @@ import {
   sourceCategory,
 } from "./metrics";
 import { getPreviousScore, getProductRow } from "./db";
+import { isAiDailyQuotaError, markAiQuotaExceeded } from "./aiQuota";
 
 type AiTextResponse = { response?: unknown };
 
@@ -65,6 +66,7 @@ async function analyzeWithRetry(env: Env, productName: string, evidence: Evidenc
   try {
     return await runAi(env, productName, evidence);
   } catch (error) {
+    if (isAiDailyQuotaError(error)) throw error;
     console.warn(JSON.stringify({ event: "ai_retry", message: error instanceof Error ? error.message : "unknown" }));
     return runAi(env, productName, evidence.slice(0, 30));
   }
@@ -89,7 +91,16 @@ export async function ingestAnalysis(
   if (!product) throw new Error("Product not found");
   await env.DB.prepare("UPDATE analysis_runs SET status = 'synthesizing' WHERE id = ?").bind(runId).run();
 
-  const ai = await analyzeWithRetry(env, product.name, payload.evidence);
+  let ai: AiAnalysis;
+  try {
+    ai = await analyzeWithRetry(env, product.name, payload.evidence);
+  } catch (error) {
+    if (isAiDailyQuotaError(error)) {
+      await markAiQuotaExceeded(env.DB, runId);
+      throw new Error("Workers AI daily free-tier limit reached");
+    }
+    throw error;
+  }
   const sentimentById = new Map(ai.classifications.map((item) => [item.id, item.sentiment]));
   const classified = payload.evidence
     .filter((item) => sentimentById.has(item.id))

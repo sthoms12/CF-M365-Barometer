@@ -1,4 +1,5 @@
 import { getDueProducts, getProductRow } from "./db";
+import { getAiQuotaStatus } from "./aiQuota";
 
 type TriggerType = "scheduled" | "admin_product" | "admin_all";
 
@@ -40,6 +41,9 @@ export async function createAndDispatchRun(
   triggerType: TriggerType,
   requestKey?: string,
 ): Promise<string> {
+  const quota = await getAiQuotaStatus(env.DB);
+  if (quota.limited) throw new Error("Workers AI daily free-tier limit reached. Analysis resumes after the UTC daily reset.");
+
   const key = requestKey ?? `${triggerType}:${productId}:${crypto.randomUUID()}`;
   const existing = await env.DB.prepare(
     "SELECT id, status, attempt_count FROM analysis_runs WHERE request_key = ?",
@@ -143,7 +147,9 @@ export async function markRunFailed(
 ): Promise<void> {
   await db.prepare(`
     UPDATE analysis_runs SET status = 'failed', completed_at = ?,
-      error_code = ?, error_message = ? WHERE id = ?
+      error_code = CASE WHEN error_code = 'AI_QUOTA_EXCEEDED' THEN error_code ELSE ? END,
+      error_message = CASE WHEN error_code = 'AI_QUOTA_EXCEEDED' THEN error_message ELSE ? END
+    WHERE id = ?
   `).bind(new Date().toISOString(), errorCode.slice(0, 80), errorMessage.slice(0, 1000), runId).run();
 }
 

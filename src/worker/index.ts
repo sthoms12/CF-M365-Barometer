@@ -18,6 +18,7 @@ import {
   runnerContext,
 } from "./automation";
 import { accessAuth, bearerAuth } from "./security";
+import { getAiQuotaStatus } from "./aiQuota";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -108,6 +109,9 @@ app.get("/admin/api/analysis-runs", async (context) => {
   `).all();
   return context.json({ runs: results });
 });
+app.get("/admin/api/ai-status", async (context) =>
+  context.json(await getAiQuotaStatus(context.env.DB)),
+);
 app.get("/admin/api/analysis-runs/:id", async (context) => {
   const run = await context.env.DB.prepare(`
     SELECT r.*, p.name AS product_name FROM analysis_runs r

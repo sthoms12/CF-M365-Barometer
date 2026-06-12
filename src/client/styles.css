@@ -130,6 +130,8 @@ td small { color: var(--muted); margin-top: 3px; font-size: 10px; }
 .span-two { grid-column: span 2; }
 .product-form button { width: fit-content; }
 .error-banner { background: #f8dedc; color: #963a35; padding: 12px 4vw; margin: 0; font-size: 13px; }
+.quota-banner { display: flex; gap: 8px; align-items: baseline; background: #f4e9c7; color: #765815; padding: 12px 14px; margin-top: 20px; font-size: 13px; }
+.quota-banner span { color: #5f4b1d; }
 
 @media (max-width: 950px) {
   .product-grid, .product-grid.wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const baseUrl = process.env.API_BASE_URL?.replace(/\/$/, "");
 const runId = process.env.ANALYSIS_RUN_ID;
 const token = process.env.INGEST_TOKEN;
-if (!baseUrl || !runId || !token) throw new Error("API_BASE_URL, ANALYSIS_RUN_ID, and INGEST_TOKEN are required");
 
 const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
@@ -26,7 +26,7 @@ function run(command, args) {
   });
 }
 
-function normalize(report) {
+export function normalize(report) {
   const evidence = [];
   const sourceStatus = {};
   const itemsBySource = report.items_by_source ?? {};
@@ -63,7 +63,37 @@ function normalize(report) {
   };
 }
 
+export function buildEngineArgs(engine, context, planPath, env = process.env) {
+  const args = [
+    engine,
+    context.product.analysisQuery,
+    "--emit=json",
+    "--days=30",
+    "--plan", planPath,
+    "--web-backend", env.BRAVE_API_KEY ? "brave" : "none",
+  ];
+  if (context.subreddits?.length) args.push("--subreddits", context.subreddits.join(","));
+  return args;
+}
+
+export function sourceDiagnostics(report, payload) {
+  const raw = Object.fromEntries(
+    Object.entries(report.items_by_source ?? {}).map(([source, items]) => [source, Array.isArray(items) ? items.length : 0]),
+  );
+  const accepted = payload.evidence.reduce((counts, item) => {
+    counts[item.source] = (counts[item.source] ?? 0) + 1;
+    return counts;
+  }, {});
+  return {
+    raw,
+    accepted,
+    errors: report.errors_by_source ?? {},
+    acceptedTotal: payload.evidence.length,
+  };
+}
+
 async function main() {
+  if (!baseUrl || !runId || !token) throw new Error("API_BASE_URL, ANALYSIS_RUN_ID, and INGEST_TOKEN are required");
   const context = await request(`/api/internal/analysis-runs/${runId}/context`);
   await request(`/api/internal/analysis-runs/${runId}/start`, { method: "POST", body: "{}" });
 
@@ -73,34 +103,28 @@ async function main() {
   await writeFile(planPath, JSON.stringify(context.queryPlan), "utf8");
 
   const engine = path.resolve("vendor/last30days/skills/last30days/scripts/last30days.py");
-  const args = [
-    engine,
-    context.product.analysisQuery,
-    "--emit=json",
-    "--quick",
-    "--days=30",
-    "--plan", planPath,
-    "--web-backend", process.env.BRAVE_API_KEY ? "brave" : "none",
-  ];
-  if (context.subreddits?.length) args.push("--subreddits", context.subreddits.join(","));
+  const args = buildEngineArgs(engine, context, planPath);
 
   const stdout = await run("python", args);
   const report = JSON.parse(stdout);
   const payload = normalize(report);
+  console.log("Collector source diagnostics:", JSON.stringify(sourceDiagnostics(report, payload)));
   if (payload.evidence.length < 3) throw new Error("INSUFFICIENT_EVIDENCE: collector returned fewer than three usable items");
   await request(`/api/internal/analysis-runs/${runId}/ingest`, { method: "POST", body: JSON.stringify(payload) });
   console.log(`Analysis ${runId} ingested with ${payload.evidence.length} evidence items.`);
 }
 
-main().catch(async (error) => {
-  console.error(error);
-  try {
-    await request(`/api/internal/analysis-runs/${runId}/fail`, {
-      method: "POST",
-      body: JSON.stringify({ errorCode: "COLLECTOR_FAILED", errorMessage: error instanceof Error ? error.message : String(error) }),
-    });
-  } catch (reportError) {
-    console.error("Could not report failure:", reportError);
-  }
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(async (error) => {
+    console.error(error);
+    try {
+      await request(`/api/internal/analysis-runs/${runId}/fail`, {
+        method: "POST",
+        body: JSON.stringify({ errorCode: "COLLECTOR_FAILED", errorMessage: error instanceof Error ? error.message : String(error) }),
+      });
+    } catch (reportError) {
+      console.error("Could not report failure:", reportError);
+    }
+    process.exitCode = 1;
+  });
+}

@@ -1,34 +1,51 @@
 import { describe, expect, it, vi } from "vitest";
-import { accessAuth } from "./security";
+import { adminAuth, createAdminSession, verifyAdminSession } from "./security";
 
-function context(url: string, jwt?: string) {
+function context(url: string, cookie?: string) {
   const json = vi.fn((body: unknown, status?: number) => ({ body, status }));
   return {
     req: {
       url,
-      header: vi.fn((name: string) => name === "Cf-Access-Jwt-Assertion" ? jwt : undefined),
+      header: vi.fn((name: string) => name === "Cookie" ? cookie : undefined),
     },
     env: {
-      ACCESS_TEAM_DOMAIN: "example.cloudflareaccess.com",
-      ACCESS_AUD: "audience",
+      ADMIN_KEY: "a-long-random-admin-key",
     },
     json,
   };
 }
 
-describe("Cloudflare Access middleware", () => {
-  it("allows localhost development without an Access assertion", async () => {
+describe("admin key sessions", () => {
+  it("creates a valid signed session that expires", async () => {
+    const now = Date.now();
+    const session = await createAdminSession("secret", now);
+    expect(await verifyAdminSession(session, "secret", now + 1)).toBe(true);
+    expect(await verifyAdminSession(session, "wrong-secret", now + 1)).toBe(false);
+    expect(await verifyAdminSession(session, "secret", now + 12 * 60 * 60 * 1000 + 1)).toBe(false);
+  });
+
+  it("allows localhost development without a session", async () => {
     const next = vi.fn();
-    await accessAuth()(context("http://127.0.0.1:5173/admin/api/products") as never, next);
+    await adminAuth()(context("http://127.0.0.1:5173/admin/api/products") as never, next);
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it("rejects production requests without an Access assertion", async () => {
+  it("accepts a valid production session", async () => {
     const next = vi.fn();
-    const result = await accessAuth()(context("https://barometer.example.com/admin/api/products") as never, next);
+    const session = await createAdminSession("a-long-random-admin-key");
+    await adminAuth()(
+      context("https://barometer.example.com/admin/api/products", `m365_admin_session=${session}`) as never,
+      next,
+    );
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("rejects production requests without a session", async () => {
+    const next = vi.fn();
+    const result = await adminAuth()(context("https://barometer.example.com/admin/api/products") as never, next);
     expect(next).not.toHaveBeenCalled();
     expect(result).toEqual({
-      body: { error: "Cloudflare Access authentication required" },
+      body: { error: "Admin authentication required" },
       status: 401,
     });
   });

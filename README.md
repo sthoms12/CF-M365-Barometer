@@ -49,14 +49,13 @@ configures Worker secrets, and smoke-tests the public health endpoint.
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID.
 - `INGEST_TOKEN`: A separate long random token shared by the Worker and collector workflow.
 - `WORKER_GITHUB_TOKEN`: The fine-grained GitHub token used by the Worker.
+- `ADMIN_KEY`: A separate long random key used to sign in to the admin area.
 
 3. Add these GitHub Actions repository variables:
 
 - `PUBLIC_BASE_URL`: The production origin, without a trailing slash. This can be added after the first deployment.
 - `CLOUDFLARE_DEPLOY_ENABLED`: Set to `true` only after the secrets above are configured.
 - `CUSTOM_DOMAIN`: Optional custom hostname. When set, deployment disables `workers.dev`.
-- `ACCESS_TEAM_DOMAIN`: Required before enabling the admin surface.
-- `ACCESS_AUD`: Required before enabling the admin surface.
 - `INCLUDE_SOURCES`: Optional collector source selection.
 
 4. Optionally add `BRAVE_API_KEY`, `XAI_API_KEY`, and `SCRAPECREATORS_API_KEY` as GitHub Actions secrets.
@@ -67,28 +66,19 @@ Until `CLOUDFLARE_DEPLOY_ENABLED=true`, pushes still run the full check and buil
 
 The Cron Trigger runs daily at `06:15 UTC` and dispatches at most three due products. Each successful product analysis schedules its next run seven days later.
 
-## Cloudflare Access Admin Protection
+## Admin Area
 
-The complete admin surface uses one protected path:
+The admin surface is available at `/admin`. Enter the `ADMIN_KEY` to create a signed,
+HTTP-only browser session that lasts 12 hours. The Worker validates that session on every
+`/admin/api/*` request. Localhost requests bypass admin authentication for development.
 
-- Admin UI: `/admin`
-- Admin APIs: `/admin/api/*`
-
-Configure a Cloudflare Access self-hosted application:
-
-1. Attach the Worker to a production custom domain managed by Cloudflare.
-2. In Zero Trust, create a self-hosted Access application for `<your-domain>/admin*`.
-3. Add an Allow policy for the administrator email addresses or identity-provider group.
-4. Copy the application's Audience tag into `ACCESS_AUD` in `wrangler.jsonc`.
-5. Set `ACCESS_TEAM_DOMAIN` to `<your-team-name>.cloudflareaccess.com`.
-6. Deploy the Worker and verify unauthenticated requests to `/admin` redirect to Access.
-7. Disable the public `workers.dev` route after the custom domain is working so it cannot bypass the path policy.
-
-The Worker also cryptographically validates the `Cf-Access-Jwt-Assertion` header on every `/admin/api/*` request. Localhost requests bypass Access so local admin development remains usable.
+New products begin as drafts. Add recognizable aliases and relevant subreddits, run the
+Last30Days test search, then activate products that return at least three usable items.
+Products with analysis history can be archived but not deleted.
 
 ## Security
 
-- Cloudflare Access protects `/admin*`; the Worker validates the Access JWT for admin API requests.
+- A signed admin-key session protects `/admin/api/*`.
 - `INGEST_TOKEN` protects runner context, lifecycle, and evidence ingestion.
 - `GITHUB_TOKEN` should be a fine-grained token limited to Actions workflow dispatch for this repository.
 - Public routes never expose raw collector payloads, tokens, or internal errors.

@@ -11,6 +11,7 @@ type ProductRow = {
   is_active: number;
   next_analysis_at: string | null;
   last_analyzed_at: string | null;
+  lifecycle_status: "draft" | "ready" | "active" | "archived";
 };
 
 type SnapshotRow = {
@@ -57,7 +58,7 @@ export function mapSnapshot(row: SnapshotRow | null): SnapshotSummary | null {
 }
 
 export async function getProducts(db: D1Database, includeInactive = false): Promise<ProductSummary[]> {
-  const where = includeInactive ? "" : "WHERE p.is_active = 1";
+  const where = includeInactive ? "" : "WHERE p.is_active = 1 AND p.lifecycle_status = 'active'";
   const { results } = await db.prepare(`
     SELECT p.*,
       s.id AS snapshot_id, s.analyzed_at, s.barometer_score, s.temperature, s.momentum,
@@ -89,8 +90,19 @@ export async function getAdminProducts(db: D1Database) {
   const [products, configs] = await Promise.all([
     getProducts(db, true),
     db.prepare(`
-      SELECT id, analysis_query, aliases_json, source_config_json FROM products ORDER BY name
-    `).all<{ id: string; analysis_query: string; aliases_json: string; source_config_json: string }>(),
+      SELECT p.id, p.analysis_query, p.aliases_json, p.source_config_json, p.lifecycle_status,
+        v.status AS validation_status, v.evidence_count, v.source_status_json AS validation_source_status_json,
+        v.completed_at AS validated_at
+      FROM products p
+      LEFT JOIN product_validations v ON v.id = (
+        SELECT id FROM product_validations WHERE product_id = p.id ORDER BY requested_at DESC LIMIT 1
+      )
+      ORDER BY p.name
+    `).all<{
+      id: string; analysis_query: string; aliases_json: string; source_config_json: string;
+      lifecycle_status: ProductRow["lifecycle_status"]; validation_status: string | null;
+      evidence_count: number | null; validation_source_status_json: string | null; validated_at: string | null;
+    }>(),
   ]);
   const configById = new Map(configs.results.map((row) => [row.id, row]));
   return products.map((product) => {
@@ -100,6 +112,13 @@ export async function getAdminProducts(db: D1Database) {
       analysisQuery: config?.analysis_query ?? "",
       aliases: parseJson(config?.aliases_json ?? "[]", [] as string[]),
       sourceConfig: parseJson(config?.source_config_json ?? "{}", {} as Record<string, unknown>),
+      lifecycleStatus: config?.lifecycle_status ?? "draft",
+      validation: config?.validation_status ? {
+        status: config.validation_status,
+        evidenceCount: config.evidence_count ?? 0,
+        sourceStatus: parseJson(config.validation_source_status_json ?? "{}", {} as Record<string, string>),
+        validatedAt: config.validated_at,
+      } : null,
     };
   });
 }
@@ -136,11 +155,11 @@ export async function createProduct(db: D1Database, input: ProductInput): Promis
   await db.prepare(`
     INSERT INTO products (
       id, slug, name, description, analysis_query, aliases_json, source_config_json,
-      is_active, next_analysis_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+      is_active, lifecycle_status, next_analysis_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'draft', NULL, ?, ?)
   `).bind(
     id, input.slug, input.name, input.description, input.analysisQuery,
-    JSON.stringify(input.aliases), JSON.stringify(input.sourceConfig), now, now, now,
+    JSON.stringify(input.aliases), JSON.stringify(input.sourceConfig), now, now,
   ).run();
   return id;
 }
@@ -148,7 +167,9 @@ export async function createProduct(db: D1Database, input: ProductInput): Promis
 export async function updateProduct(db: D1Database, id: string, input: ProductInput): Promise<void> {
   await db.prepare(`
     UPDATE products SET slug = ?, name = ?, description = ?, analysis_query = ?,
-      aliases_json = ?, source_config_json = ?, updated_at = ? WHERE id = ?
+      aliases_json = ?, source_config_json = ?,
+      lifecycle_status = CASE WHEN lifecycle_status = 'archived' THEN 'archived' ELSE 'draft' END,
+      is_active = 0, next_analysis_at = NULL, updated_at = ? WHERE id = ?
   `).bind(
     input.slug, input.name, input.description, input.analysisQuery,
     JSON.stringify(input.aliases), JSON.stringify(input.sourceConfig), new Date().toISOString(), id,
@@ -157,9 +178,30 @@ export async function updateProduct(db: D1Database, id: string, input: ProductIn
 
 export async function setProductActive(db: D1Database, id: string, active: boolean): Promise<void> {
   await db.prepare(`
-    UPDATE products SET is_active = ?, next_analysis_at = CASE WHEN ? = 1 THEN datetime('now') ELSE next_analysis_at END,
+    UPDATE products SET is_active = ?, lifecycle_status = ?,
+      next_analysis_at = CASE WHEN ? = 1 THEN datetime('now') ELSE next_analysis_at END,
       updated_at = datetime('now') WHERE id = ?
-  `).bind(active ? 1 : 0, active ? 1 : 0, id).run();
+  `).bind(active ? 1 : 0, active ? "active" : "archived", active ? 1 : 0, id).run();
+}
+
+export async function activateProduct(db: D1Database, id: string): Promise<boolean> {
+  const result = await db.prepare(`
+    UPDATE products SET is_active = 1, lifecycle_status = 'active',
+      next_analysis_at = datetime('now'), updated_at = datetime('now')
+    WHERE id = ? AND lifecycle_status = 'ready'
+  `).bind(id).run();
+  return result.meta.changes > 0;
+}
+
+export async function deleteProduct(db: D1Database, id: string): Promise<boolean> {
+  const history = await db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM analysis_runs WHERE product_id = ?) +
+      (SELECT COUNT(*) FROM sentiment_snapshots WHERE product_id = ?) AS count
+  `).bind(id, id).first<{ count: number }>();
+  if ((history?.count ?? 0) > 0) return false;
+  await db.prepare("DELETE FROM products WHERE id = ?").bind(id).run();
+  return true;
 }
 
 export async function getHistory(db: D1Database, productId: string, days: number) {

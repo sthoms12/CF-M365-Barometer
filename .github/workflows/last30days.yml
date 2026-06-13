@@ -5,14 +5,18 @@ on:
     inputs:
       analysis_run_id:
         description: Analysis run ID created by the Cloudflare Worker
-        required: true
+        required: false
+        type: string
+      product_validation_id:
+        description: Product validation ID created by the Cloudflare Worker
+        required: false
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: last30days-${{ inputs.analysis_run_id }}
+  group: last30days-${{ inputs.analysis_run_id || inputs.product_validation_id }}
   cancel-in-progress: false
 
 jobs:
@@ -45,6 +49,7 @@ jobs:
         env:
           API_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
           ANALYSIS_RUN_ID: ${{ inputs.analysis_run_id }}
+          PRODUCT_VALIDATION_ID: ${{ inputs.product_validation_id }}
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}

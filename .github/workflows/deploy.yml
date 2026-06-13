@@ -37,9 +37,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
       WORKER_GITHUB_TOKEN: ${{ secrets.WORKER_GITHUB_TOKEN }}
+      ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
       PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
-      ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
-      ACCESS_AUD: ${{ vars.ACCESS_AUD }}
       CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
     steps:
       - uses: actions/checkout@v6
@@ -60,6 +59,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$INGEST_TOKEN"
           test -n "$WORKER_GITHUB_TOKEN"
+          test -n "$ADMIN_KEY"
 
       - name: Find or create D1 database
         id: d1
@@ -89,6 +89,7 @@ jobs:
         run: |
           printf '%s' "$INGEST_TOKEN" | npx wrangler secret put INGEST_TOKEN --config wrangler.production.jsonc
           printf '%s' "$WORKER_GITHUB_TOKEN" | npx wrangler secret put GITHUB_TOKEN --config wrangler.production.jsonc
+          printf '%s' "$ADMIN_KEY" | npx wrangler secret put ADMIN_KEY --config wrangler.production.jsonc
 
       - name: Smoke test
         shell: bash

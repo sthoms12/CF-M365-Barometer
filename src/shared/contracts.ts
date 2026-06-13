@@ -58,7 +58,9 @@ export const productInputSchema = z.object({
   description: z.string().max(500).optional().default(""),
   analysisQuery: z.string().min(3).max(500),
   aliases: z.array(z.string().min(1).max(100)).max(20).default([]),
-  sourceConfig: z.record(z.unknown()).default({}),
+  sourceConfig: z.object({
+    subreddits: z.array(z.string().min(1).max(80)).max(20).default([]),
+  }).passthrough().default({ subreddits: [] }),
 });
 
 export type ProductInput = z.infer<typeof productInputSchema>;
@@ -95,6 +97,7 @@ export type ProductSummary = {
   lastAnalyzedAt: string | null;
   snapshot: SnapshotSummary | null;
   isStale: boolean;
+  lifecycleStatus?: "draft" | "ready" | "active" | "archived";
 };
 
 export type SnapshotSummary = {

@@ -1,0 +1,36 @@
+name: Attach custom domain (one-off)
+
+# Temporary helper: attaches www.m365-barometer.com as a custom domain to the
+# m365-barometer Worker using the repo's Cloudflare API token. The wrangler
+# deploy flow cannot do this because the token lacks zone Workers Routes
+# permission, but it CAN use the script-scoped custom-domains endpoint
+# (the same PUT wrangler itself makes). Delete this file after use.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attach www.m365-barometer.com custom domain
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl --silent --show-error --request PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/m365-barometer/domains/records" \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data '{"override_scope":true,"override_existing_origin":true,"override_existing_dns_record":true,"origins":[{"hostname":"www.m365-barometer.com"}]}')"
+          echo "$resp" | python3 -c "
+          import json,sys
+          d = json.load(sys.stdin)
+          print('success:', d.get('success'))
+          if not d.get('success'):
+              print(json.dumps(d.get('errors'), indent=2)[:2000])
+              sys.exit(1)
+          for r in (d.get('result') or []):
+              print('hostname:', r.get('hostname'), '| status:', r.get('status'), '| id:', r.get('id'))
+          "

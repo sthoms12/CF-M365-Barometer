@@ -91,8 +91,14 @@ jobs:
       - name: Smoke test
         shell: bash
         run: |
-          if [ -n "$PUBLIC_BASE_URL" ]; then
-            curl --fail --silent --show-error --retry 5 --retry-delay 5 "$PUBLIC_BASE_URL/api/health"
-          else
-            echo "PUBLIC_BASE_URL is not configured; skipping smoke test until the first deployment URL is known."
-          fi
+          # The public URL can't be curled from GitHub runners: the zone's bot
+          # protection 403s automated datacenter traffic. Instead, verify via
+          # the Cloudflare API that this run's deployment actually landed.
+          modified_on="$(curl --silent --show-error --fail \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/m365-barometer" \
+            | jq -r '.result.modified_on')"
+          echo "Worker m365-barometer last modified: $modified_on"
+          age_minutes="$(( ($(date +%s) - $(date -d "$modified_on" +%s)) / 60 ))"
+          echo "Deployment age: ${age_minutes}m"
+          test "$age_minutes" -lt 15

@@ -1,6 +1,5 @@
 import { Activity, Gauge, RefreshCw } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router-dom";
-import { AdminPage } from "./pages/AdminPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProductPage } from "./pages/ProductPage";
 import { ProductsPage } from "./pages/ProductsPage";
@@ -28,7 +27,6 @@ export function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/products/:slug" element={<ProductPage />} />
-        <Route path="/admin" element={<AdminPage />} />
       </Routes>
     </>
   );

@@ -25,26 +25,7 @@ evidence items. The result is visible on the live dashboard.
 
 ## Remaining Work
 
-### Priority 1: Protect the Admin Surface
-
-The public dashboard is production-ready, but the admin surface is not ready for normal use.
-The Worker rejects production admin API requests because Cloudflare Access is not configured.
-
-1. Choose or purchase a custom domain managed by Cloudflare.
-2. Set GitHub repository variable `CUSTOM_DOMAIN` to the production hostname.
-3. Create a Cloudflare Zero Trust self-hosted Access application for `<hostname>/admin*`.
-4. Add an Allow policy for the intended administrator identities.
-5. Set repository variables:
-   - `ACCESS_TEAM_DOMAIN`
-   - `ACCESS_AUD`
-6. Run `Deploy Cloudflare`.
-7. Verify `/admin` redirects unauthenticated users to Access.
-8. Verify authenticated admin operations work.
-
-Setting `CUSTOM_DOMAIN` causes the generated production config to disable the public
-`workers.dev` route, preventing it from bypassing Access.
-
-### Priority 2: Tighten Credentials
+### Priority 1: Tighten Credentials
 
 - Replace `CLOUDFLARE_API_TOKEN` with a dedicated long-lived API token scoped only to the
   required Workers, D1, Workers AI, and route permissions.
@@ -54,7 +35,7 @@ Setting `CUSTOM_DOMAIN` causes the generated production config to disable the pu
 
 Never store credential values in this document or any committed file.
 
-### Priority 3: Improve Collection Quality
+### Priority 2: Improve Collection Quality
 
 The collector currently works without paid source APIs, but the first reading had low
 confidence because it found only six usable evidence items.
@@ -72,14 +53,14 @@ Optional repository variable:
 After adding sources, trigger a product analysis and confirm evidence count, source diversity,
 and confidence improve before enabling more frequent analysis.
 
-### Priority 4: Operations and Quality
+### Priority 3: Operations and Quality
 
 - Confirm the daily Cron Trigger dispatches due products successfully over a full week.
 - Add Cloudflare usage/billing notifications for Workers AI, Workers, and D1.
 - Add GitHub Actions budget notifications.
 - Add alerting for failed or timed-out analysis runs.
 - Establish a periodic D1 export/backup procedure.
-- Add integration tests for D1 ingestion, scheduling, GitHub dispatch, and admin authorization.
+- Add integration tests for D1 ingestion, scheduling, and GitHub dispatch.
 - Add visible frontend error states to product and product-list pages.
 - Consider branch protection if the repository plan supports it.
 
@@ -139,7 +120,7 @@ The workflow:
 
 ## Analysis Runbook
 
-Normal analyses are created by the Worker through the admin API or daily Cron Trigger. The
+Normal analyses are created by the Worker through the daily Cron Trigger. The
 Worker dispatches `.github/workflows/last30days.yml`, which collects evidence and ingests it
 back into the Worker.
 
@@ -175,8 +156,6 @@ Configured repository variables:
 Not configured yet:
 
 - `CUSTOM_DOMAIN`
-- `ACCESS_TEAM_DOMAIN`
-- `ACCESS_AUD`
 - `INCLUDE_SOURCES`
 - Optional collector API keys
 

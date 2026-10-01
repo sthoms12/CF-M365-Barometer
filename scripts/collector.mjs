@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url";
 
 const baseUrl = process.env.API_BASE_URL?.replace(/\/$/, "");
 const runId = process.env.ANALYSIS_RUN_ID;
-const validationId = process.env.PRODUCT_VALIDATION_ID;
 const token = process.env.INGEST_TOKEN;
 
 const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
@@ -94,17 +93,15 @@ export function sourceDiagnostics(report, payload) {
 }
 
 async function main() {
-  if (!baseUrl || (!runId && !validationId) || !token) {
-    throw new Error("API_BASE_URL, INGEST_TOKEN, and an analysis or validation ID are required");
+  if (!baseUrl || !runId || !token) {
+    throw new Error("API_BASE_URL, INGEST_TOKEN, and ANALYSIS_RUN_ID are required");
   }
-  const mode = validationId ? "product-validations" : "analysis-runs";
-  const id = validationId || runId;
-  const context = await request(`/api/internal/${mode}/${id}/context`);
-  await request(`/api/internal/${mode}/${id}/start`, { method: "POST", body: "{}" });
+  const context = await request(`/api/internal/analysis-runs/${runId}/context`);
+  await request(`/api/internal/analysis-runs/${runId}/start`, { method: "POST", body: "{}" });
 
   const tempDir = process.env.RUNNER_TEMP ?? ".collector-temp";
   await mkdir(tempDir, { recursive: true });
-  const planPath = path.join(tempDir, `query-plan-${id}.json`);
+  const planPath = path.join(tempDir, `query-plan-${runId}.json`);
   await writeFile(planPath, JSON.stringify(context.queryPlan), "utf8");
 
   const engine = path.resolve("vendor/last30days/skills/last30days/scripts/last30days.py");
@@ -114,14 +111,6 @@ async function main() {
   const report = JSON.parse(stdout);
   const payload = normalize(report);
   console.log("Collector source diagnostics:", JSON.stringify(sourceDiagnostics(report, payload)));
-  if (validationId) {
-    await request(`/api/internal/product-validations/${validationId}/complete`, {
-      method: "POST",
-      body: JSON.stringify({ evidenceCount: payload.evidence.length, sourceStatus: payload.sourceStatus }),
-    });
-    console.log(`Product validation ${validationId} completed with ${payload.evidence.length} evidence items.`);
-    return;
-  }
   if (payload.evidence.length < 3) throw new Error("INSUFFICIENT_EVIDENCE: collector returned fewer than three usable items");
   await request(`/api/internal/analysis-runs/${runId}/ingest`, { method: "POST", body: JSON.stringify(payload) });
   console.log(`Analysis ${runId} ingested with ${payload.evidence.length} evidence items.`);
@@ -131,9 +120,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   main().catch(async (error) => {
     console.error(error);
     try {
-      const mode = validationId ? "product-validations" : "analysis-runs";
-      const id = validationId || runId;
-      await request(`/api/internal/${mode}/${id}/fail`, {
+      await request(`/api/internal/analysis-runs/${runId}/fail`, {
         method: "POST",
         body: JSON.stringify({ errorCode: "COLLECTOR_FAILED", errorMessage: error instanceof Error ? error.message : String(error) }),
       });

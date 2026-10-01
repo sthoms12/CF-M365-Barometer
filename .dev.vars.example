@@ -1,3 +1,2 @@
-ADMIN_KEY=replace-with-separate-long-random-admin-key
 INGEST_TOKEN=replace-with-separate-long-random-token
 GITHUB_TOKEN=replace-with-fine-grained-token

@@ -49,7 +49,6 @@ configures Worker secrets, and smoke-tests the public health endpoint.
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID.
 - `INGEST_TOKEN`: A separate long random token shared by the Worker and collector workflow.
 - `WORKER_GITHUB_TOKEN`: The fine-grained GitHub token used by the Worker.
-- `ADMIN_KEY`: A separate long random key used to sign in to the admin area.
 
 3. Add these GitHub Actions repository variables:
 
@@ -66,19 +65,8 @@ Until `CLOUDFLARE_DEPLOY_ENABLED=true`, pushes still run the full check and buil
 
 The Cron Trigger runs daily at `06:15 UTC` and dispatches at most three due products. Each successful product analysis schedules its next run seven days later.
 
-## Admin Area
-
-The admin surface is available at `/admin`. Enter the `ADMIN_KEY` to create a signed,
-HTTP-only browser session that lasts 12 hours. The Worker validates that session on every
-`/admin/api/*` request. Localhost requests bypass admin authentication for development.
-
-New products begin as drafts. Add recognizable aliases and relevant subreddits, run the
-Last30Days test search, then activate products that return at least three usable items.
-Products with analysis history can be archived but not deleted.
-
 ## Security
 
-- A signed admin-key session protects `/admin/api/*`.
 - `INGEST_TOKEN` protects runner context, lifecycle, and evidence ingestion.
 - `GITHUB_TOKEN` should be a fine-grained token limited to Actions workflow dispatch for this repository.
 - Public routes never expose raw collector payloads, tokens, or internal errors.

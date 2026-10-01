@@ -1,6 +1,6 @@
 import { getDueProducts, getProductRow } from "./db";
 
-type TriggerType = "scheduled" | "admin_product" | "admin_all";
+type TriggerType = "scheduled";
 
 function isoWeek(date = new Date()): string {
   const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -13,7 +13,7 @@ function isoWeek(date = new Date()): string {
 
 export async function dispatchGithubRun(
   env: Env,
-  inputs: { analysis_run_id?: string; product_validation_id?: string },
+  inputs: { analysis_run_id?: string },
 ): Promise<void> {
   const response = await fetch(
     `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW}/dispatches`,
@@ -210,63 +210,3 @@ async function productContext(db: D1Database, productId: string, contextId: stri
   };
 }
 
-export async function createAndDispatchValidation(env: Env, productId: string): Promise<string> {
-  const product = await getProductRow(env.DB, productId);
-  if (!product) throw new Error("Product not found");
-  if (product.lifecycle_status === "archived") throw new Error("Archived products cannot be validated");
-  const validationId = crypto.randomUUID();
-  await env.DB.prepare(`
-    INSERT INTO product_validations (id, product_id, status, requested_at)
-    VALUES (?, ?, 'pending', ?)
-  `).bind(validationId, productId, new Date().toISOString()).run();
-  try {
-    await dispatchGithubRun(env, { product_validation_id: validationId });
-    await env.DB.prepare("UPDATE product_validations SET status = 'dispatched' WHERE id = ?")
-      .bind(validationId).run();
-    return validationId;
-  } catch (error) {
-    await failValidation(env.DB, validationId, error instanceof Error ? error.message : "GitHub dispatch failed");
-    throw error;
-  }
-}
-
-export async function validationContext(db: D1Database, validationId: string) {
-  const validation = await db.prepare("SELECT product_id FROM product_validations WHERE id = ?")
-    .bind(validationId).first<{ product_id: string }>();
-  return validation ? productContext(db, validation.product_id, validationId) : null;
-}
-
-export async function startValidation(db: D1Database, validationId: string): Promise<void> {
-  await db.prepare(`
-    UPDATE product_validations SET status = 'collecting', started_at = ? WHERE id = ?
-  `).bind(new Date().toISOString(), validationId).run();
-}
-
-export async function completeValidation(
-  db: D1Database,
-  validationId: string,
-  evidenceCount: number,
-  sourceStatus: Record<string, string>,
-): Promise<void> {
-  const status = evidenceCount >= 3 ? "ready" : "needs_attention";
-  await db.batch([
-    db.prepare(`
-      UPDATE product_validations SET status = ?, completed_at = ?, evidence_count = ?,
-        source_status_json = ?, error_message = NULL WHERE id = ?
-    `).bind(status, new Date().toISOString(), evidenceCount, JSON.stringify(sourceStatus), validationId),
-    db.prepare(`
-      UPDATE products SET
-        lifecycle_status = CASE WHEN lifecycle_status = 'active' THEN 'active' ELSE ? END,
-        is_active = CASE WHEN lifecycle_status = 'active' THEN 1 ELSE 0 END,
-        updated_at = datetime('now')
-      WHERE id = (SELECT product_id FROM product_validations WHERE id = ?)
-        AND lifecycle_status != 'archived'
-    `).bind(status === "ready" ? "ready" : "draft", validationId),
-  ]);
-}
-
-export async function failValidation(db: D1Database, validationId: string, message: string): Promise<void> {
-  await db.prepare(`
-    UPDATE product_validations SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?
-  `).bind(new Date().toISOString(), message.slice(0, 1000), validationId).run();
-}

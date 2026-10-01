@@ -94,7 +94,9 @@ jobs:
           # The public URL can't be curled from GitHub runners: the zone's bot
           # protection 403s automated datacenter traffic. Instead, verify via
           # the Cloudflare API that this run's deployment actually landed.
-          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/m365-barometer"
+          # NOTE: GET on a single script returns its source as multipart, not
+          # JSON, so use the list endpoint and pick out our worker's metadata.
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
           body="$(mktemp)"
           code="$(curl --silent --show-error --write-out '%{http_code}' --output "$body" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -108,7 +110,7 @@ jobs:
             echo "--- non-JSON response head ---"; head -c 600 "$body"; echo; echo "--- end ---"
             exit 1
           fi
-          modified_on="$(jq -r '.result.modified_on // empty' "$body")"
+          modified_on="$(jq -r '.result[] | select(.id=="m365-barometer") | .modified_on // empty' "$body")"
           echo "Worker m365-barometer last modified: $modified_on"
           [ -n "$modified_on" ] || { echo "missing modified_on in API response"; exit 1; }
           age_minutes="$(( ($(date +%s) - $(date -d "$modified_on" +%s)) / 60 ))"

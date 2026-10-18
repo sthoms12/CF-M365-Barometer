@@ -182,13 +182,14 @@ function createEnv(db: D1Database, ai?: () => Promise<unknown> | unknown): Env {
     DB: db,
     INGEST_TOKEN: TOKEN,
     GITHUB_TOKEN: "github-token",
-    GITHUB_OWNER: "owner",
-    GITHUB_REPO: "repo",
+    GITHUB_OWNER: "sthoms12",
+    GITHUB_REPO: "CF-M365-Barometer",
     GITHUB_WORKFLOW: "last30days.yml",
-    AI_MODEL: "@cf/test",
+    AI_MODEL: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     ASSETS: {} as Fetcher,
     AI: { run: async () => (ai ? ai() : { response: null }) } as unknown as Env["AI"],
-  };
+    PUBLIC_API_RATE_LIMITER: { limit: async () => ({ success: true }) },
+  } as Env;
 }
 
 async function api(env: Env, path: string, init: RequestInit = {}, token: string | null = TOKEN) {

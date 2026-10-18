@@ -17,7 +17,7 @@ No manual JSON import workflow is included.
 
 ## Local Setup
 
-Use Node.js `20.18.1` or newer.
+Use Node.js `22.13` or newer. The worker integration tests import `node:sqlite`, which Node includes starting in 22.13.
 
 ```powershell
 npm install

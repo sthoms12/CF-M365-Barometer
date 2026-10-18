@@ -90,6 +90,21 @@ export async function getProductBySlug(db: D1Database, slug: string): Promise<Pr
   return (await getProducts(db)).find((product) => product.slug === slug) ?? null;
 }
 
+export type SitemapProduct = {
+  slug: string;
+  lastModified: string | null;
+};
+
+export async function listSitemapProducts(db: D1Database): Promise<SitemapProduct[]> {
+  const { results } = await db.prepare(`
+    SELECT slug, COALESCE(last_analyzed_at, updated_at) AS last_modified
+    FROM products
+    WHERE is_active = 1 AND lifecycle_status = 'active'
+    ORDER BY slug
+  `).all<{ slug: string; last_modified: string | null }>();
+  return results.map((row) => ({ slug: row.slug, lastModified: row.last_modified }));
+}
+
 export async function getProductRow(db: D1Database, id: string): Promise<ProductRow | null> {
   return db.prepare("SELECT * FROM products WHERE id = ?").bind(id).first<ProductRow>();
 }

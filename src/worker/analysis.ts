@@ -12,24 +12,30 @@ import { getPreviousScore, getProductRow } from "./db";
 
 type AiTextResponse = { response?: unknown };
 
+// Workers AI defaults max_tokens to 256, which truncates JSON once classifications pass about 12 items.
+// 4096 covers 60 compact {id, sentiment} labels plus the summary and signals, inside the 24,000-token context window.
+export const AI_ANALYSIS_MAX_TOKENS = 4096;
+
 export function parseAiAnalysisResponse(response: unknown): AiAnalysis {
   if (!response) throw new Error("Workers AI returned no response");
   return aiAnalysisSchema.parse(typeof response === "string" ? JSON.parse(response) : response);
 }
 
-async function runAi(env: Env, productName: string, evidence: EvidenceItem[]): Promise<AiAnalysis> {
+export function analysisModelInput(productName: string, evidence: EvidenceItem[]) {
   const prompt = [
     `Analyze public discussion sentiment about ${productName}.`,
     "Classify every supplied evidence item as positive, neutral, or negative.",
+    "For classifications, return one object per item with only its original id and sentiment. Do not copy titles, excerpts, or urls.",
     "Write a factual summary under 800 characters and 3-5 concise positive and negative signals.",
     "Return only JSON matching the requested schema. Do not invent evidence.",
     JSON.stringify(evidence),
   ].join("\n\n");
 
-  const result = await env.AI.run(env.AI_MODEL, {
-    messages: [{ role: "user", content: prompt }],
+  return {
+    messages: [{ role: "user" as const, content: prompt }],
+    max_tokens: AI_ANALYSIS_MAX_TOKENS,
     response_format: {
-      type: "json_schema",
+      type: "json_schema" as const,
       json_schema: {
         name: "m365_barometer_analysis",
         schema: {
@@ -56,8 +62,11 @@ async function runAi(env: Env, productName: string, evidence: EvidenceItem[]): P
         },
       },
     },
-  }) as AiTextResponse;
+  };
+}
 
+async function runAi(env: Env, productName: string, evidence: EvidenceItem[]): Promise<AiAnalysis> {
+  const result = await env.AI.run(env.AI_MODEL, analysisModelInput(productName, evidence)) as AiTextResponse;
   return parseAiAnalysisResponse(result.response);
 }
 
@@ -76,6 +85,7 @@ async function analyzeWithRetry(env: Env, productName: string, evidence: Evidenc
   } catch (error) {
     console.warn(JSON.stringify({ event: "ai_retry", message: error instanceof Error ? error.message : "unknown" }));
     try {
+      // Same max_tokens as the first call. Only the evidence list is shortened.
       return await runAi(env, productName, evidence.slice(0, 30));
     } catch (retryError) {
       const message = retryError instanceof Error ? retryError.message : "AI scoring failed";

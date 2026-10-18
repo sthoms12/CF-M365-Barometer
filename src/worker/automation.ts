@@ -1,15 +1,6 @@
-import { getDueProducts, getProductRow } from "./db";
+import { getDueProducts, getProductBySlug, getProductRow } from "./db";
 
 type TriggerType = "scheduled";
-
-function isoWeek(date = new Date()): string {
-  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = target.getUTCDay() || 7;
-  target.setUTCDate(target.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
-  const week = Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return `${target.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
 
 export async function dispatchGithubRun(
   env: Env,
@@ -35,27 +26,38 @@ export async function dispatchGithubRun(
   if (!response.ok) throw new Error(`GitHub dispatch failed: ${response.status}`);
 }
 
+export async function createAnalysisRun(
+  db: D1Database,
+  productId: string,
+  triggerType: TriggerType,
+  requestKey?: string,
+): Promise<{ runId: string; dispatch: boolean }> {
+  const key = requestKey ?? `${triggerType}:${productId}:${crypto.randomUUID()}`;
+  const existing = await db.prepare(
+    "SELECT id, status, attempt_count FROM analysis_runs WHERE request_key = ?",
+  ).bind(key).first<{ id: string; status: string; attempt_count: number }>();
+
+  const runId = existing?.id ?? crypto.randomUUID();
+  if (!existing) {
+    await db.prepare(`
+      INSERT INTO analysis_runs (
+        id, product_id, request_key, trigger_type, status, requested_at, attempt_count
+      ) VALUES (?, ?, ?, ?, 'pending', ?, 0)
+    `).bind(runId, productId, key, triggerType, new Date().toISOString()).run();
+  }
+
+  const dispatch = !existing || (existing.status !== "completed" && existing.attempt_count < 3);
+  return { runId, dispatch };
+}
+
 export async function createAndDispatchRun(
   env: Env,
   productId: string,
   triggerType: TriggerType,
   requestKey?: string,
 ): Promise<string> {
-  const key = requestKey ?? `${triggerType}:${productId}:${crypto.randomUUID()}`;
-  const existing = await env.DB.prepare(
-    "SELECT id, status, attempt_count FROM analysis_runs WHERE request_key = ?",
-  ).bind(key).first<{ id: string; status: string; attempt_count: number }>();
-
-  const runId = existing?.id ?? crypto.randomUUID();
-  if (!existing) {
-    await env.DB.prepare(`
-      INSERT INTO analysis_runs (
-        id, product_id, request_key, trigger_type, status, requested_at, attempt_count
-      ) VALUES (?, ?, ?, ?, 'pending', ?, 0)
-    `).bind(runId, productId, key, triggerType, new Date().toISOString()).run();
-  } else if (existing.status === "completed" || existing.attempt_count >= 3) {
-    return runId;
-  }
+  const { runId, dispatch } = await createAnalysisRun(env.DB, productId, triggerType, requestKey);
+  if (!dispatch) return runId;
 
   try {
     await dispatchGithubRun(env, { analysis_run_id: runId });
@@ -76,32 +78,42 @@ export async function createAndDispatchRun(
   return runId;
 }
 
+export async function createBotAnalysisRun(db: D1Database, productSlug?: string) {
+  const product = productSlug
+    ? await getProductBySlug(db, productSlug)
+    : (await getDueProducts(db, 1))[0];
+  if (!product) return productSlug ? { status: "not_found" as const } : { status: "none_due" as const };
+
+  const { runId } = await createAnalysisRun(db, product.id, "scheduled");
+  const context = await runnerContext(db, runId);
+  if (!context) throw new Error("Analysis run context was not created");
+  return { status: "created" as const, runId, context };
+}
+
 export async function runScheduledMonitoring(env: Env): Promise<void> {
+  // The external bot claims due products. Cron only times out stuck runs and enforces retention.
   await reconcileRuns(env.DB);
   await cleanupRetention(env.DB);
-  const dueProducts = await getDueProducts(env.DB, 3);
-  for (const product of dueProducts) {
-    const requestKey = `scheduled:${product.id}:${isoWeek()}`;
-    try {
-      await createAndDispatchRun(env, product.id, "scheduled", requestKey);
-    } catch (error) {
-      console.error(JSON.stringify({
-        event: "scheduled_dispatch_failed",
-        productId: product.id,
-        message: error instanceof Error ? error.message : "unknown",
-      }));
-    }
-  }
 }
 
 export async function reconcileRuns(db: D1Database): Promise<void> {
-  await db.prepare(`
-    UPDATE analysis_runs
-    SET status = 'failed', completed_at = datetime('now'),
-      error_code = 'RUN_TIMEOUT', error_message = 'Run exceeded the 30 minute timeout'
-    WHERE status IN ('pending', 'dispatched', 'collecting', 'synthesizing')
-      AND requested_at < datetime('now', '-30 minutes')
-  `).run();
+  const timedOut = `
+    status IN ('pending', 'dispatched', 'collecting', 'synthesizing')
+    AND requested_at < datetime('now', '-30 minutes')
+  `;
+  await db.batch([
+    db.prepare(`
+      UPDATE products
+      SET next_analysis_at = datetime('now', '+1 day'), updated_at = datetime('now')
+      WHERE id IN (SELECT product_id FROM analysis_runs WHERE ${timedOut})
+    `),
+    db.prepare(`
+      UPDATE analysis_runs
+      SET status = 'failed', completed_at = datetime('now'),
+        error_code = 'RUN_TIMEOUT', error_message = 'Run exceeded the 30 minute timeout'
+      WHERE ${timedOut}
+    `),
+  ]);
 }
 
 export async function cleanupRetention(db: D1Database): Promise<void> {
@@ -142,10 +154,23 @@ export async function markRunFailed(
   errorCode: string,
   errorMessage: string,
 ): Promise<void> {
-  await db.prepare(`
-    UPDATE analysis_runs SET status = 'failed', completed_at = ?,
-      error_code = ?, error_message = ? WHERE id = ?
-  `).bind(new Date().toISOString(), errorCode.slice(0, 80), errorMessage.slice(0, 1000), runId).run();
+  const run = await db.prepare(
+    "SELECT product_id FROM analysis_runs WHERE id = ?",
+  ).bind(runId).first<{ product_id: string }>();
+  const statements = [
+    db.prepare(`
+      UPDATE analysis_runs SET status = 'failed', completed_at = ?,
+        error_code = ?, error_message = ? WHERE id = ?
+    `).bind(new Date().toISOString(), errorCode.slice(0, 80), errorMessage.slice(0, 1000), runId),
+  ];
+  if (run) {
+    statements.push(db.prepare(`
+      UPDATE products
+      SET next_analysis_at = datetime('now', '+1 day'), updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(run.product_id));
+  }
+  await db.batch(statements);
 }
 
 export async function runnerContext(db: D1Database, runId: string) {

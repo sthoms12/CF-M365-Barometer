@@ -13,7 +13,7 @@ export async function secureEqual(left: string, right: string): Promise<boolean>
   return difference === 0;
 }
 
-// Guards the /api/internal/* endpoints used by the GitHub Actions collector.
+// Guards the /api/internal/* endpoints used by the external analysis bot.
 export function bearerAuth(secretName: "INGEST_TOKEN"): MiddlewareHandler<{
   Bindings: Env;
 }> {

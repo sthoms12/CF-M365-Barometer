@@ -1,14 +1,16 @@
 import { Hono } from "hono";
 import { ingestPayloadSchema } from "../shared/contracts";
-import { ingestAnalysis } from "./analysis";
+import { AiScoringError, ingestAnalysis } from "./analysis";
 import {
   getHistory,
   getMentions,
   getProductBySlug,
   getProducts,
+  listDueProductSlugs,
   listSitemapProducts,
 } from "./db";
 import {
+  createBotAnalysisRun,
   markRunFailed,
   runScheduledMonitoring,
   runnerContext,
@@ -96,8 +98,36 @@ app.get("/api/products/:slug/history", async (context) => {
   return context.json({ history: await getHistory(context.env.DB, product.id, days) });
 });
 
-// Token-protected endpoints used by the GitHub Actions collector workflow.
+// Token-protected endpoints used by the external analysis bot.
 app.use("/api/internal/*", bearerAuth("INGEST_TOKEN"));
+app.get("/api/internal/analysis-runs/due", async (context) => {
+  return context.json({ slugs: await listDueProductSlugs(context.env.DB) });
+});
+app.post("/api/internal/analysis-runs", async (context) => {
+  let productSlug: string | undefined;
+  const raw = await context.req.text();
+  if (raw.trim()) {
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return context.json({ error: "Expected a JSON object" }, 400);
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return context.json({ error: "Expected a JSON object" }, 400);
+    }
+    const supplied = (body as { productSlug?: unknown }).productSlug;
+    if (supplied != null) {
+      if (typeof supplied !== "string") return context.json({ error: "productSlug must be a string" }, 400);
+      productSlug = supplied.trim() || undefined;
+    }
+  }
+
+  const result = await createBotAnalysisRun(context.env.DB, productSlug);
+  if (result.status === "none_due") return new Response(null, { status: 204 });
+  if (result.status === "not_found") return context.json({ error: "Product not found" }, 404);
+  return context.json({ runId: result.runId, context: result.context });
+});
 app.get("/api/internal/analysis-runs/:id/context", async (context) => {
   const result = await runnerContext(context.env.DB, context.req.param("id"));
   return result ? context.json(result) : context.json({ error: "Run not found" }, 404);
@@ -110,7 +140,16 @@ app.post("/api/internal/analysis-runs/:id/start", async (context) => {
 });
 app.post("/api/internal/analysis-runs/:id/ingest", async (context) => {
   const payload = ingestPayloadSchema.parse(await context.req.json());
-  return context.json(await ingestAnalysis(context.env, context.req.param("id"), payload));
+  const runId = context.req.param("id");
+  try {
+    return context.json(await ingestAnalysis(context.env, runId, payload));
+  } catch (error) {
+    if (!(error instanceof AiScoringError)) throw error;
+    const message = (error.message || "AI scoring failed").slice(0, 1000);
+    console.error(JSON.stringify({ event: "ai_scoring_failed", runId, message }));
+    await markRunFailed(context.env.DB, runId, error.errorCode, message);
+    return context.json({ errorCode: error.errorCode, message }, 500);
+  }
 });
 app.post("/api/internal/analysis-runs/:id/fail", async (context) => {
   const body = await context.req.json<{ errorCode?: string; errorMessage?: string }>();

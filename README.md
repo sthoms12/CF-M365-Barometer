@@ -15,6 +15,21 @@ For the live production state, remaining work, and exact resume steps, see
 
 No manual JSON import workflow is included.
 
+## Crawlability
+
+The Worker serves real HTML for `/`, `/products`, and `/products/<slug>`, plus `/robots.txt` and `/sitemap.xml`. The React app still loads for browsers. Clients that do not run JavaScript see the product name, temperature, score, last-updated date, and summary in the initial response.
+
+`/api/*` is limited to 60 requests per 60 seconds per client IP per Cloudflare location (`API_RATE_LIMITER` in `wrangler.jsonc`). That binding is part of the Workers Free plan. Page HTML, `robots.txt`, and the sitemap are not rate limited. Counters are local to each Cloudflare location, and people behind the same NAT share a budget.
+
+Search and AI crawlers named in `robots.txt`: Googlebot, Bingbot, GPTBot, OAI-SearchBot, ClaudeBot, and PerplexityBot. `/api/` is disallowed. The sitemap lists `/`, `/products`, and each active product.
+
+After merging, Steve still needs to:
+
+1. Let the `Deploy Cloudflare` workflow on `main` finish. There are no new secrets and no new migrations.
+2. Turn **Bot Fight Mode** off for the `m365-barometer.com` zone in the Cloudflare dashboard. On the Free plan it cannot be skipped with a WAF rule, and it challenges non-browser clients before this Worker runs. That setting is not in the repo.
+3. Set the `PUBLIC_BASE_URL` GitHub variable to `https://www.m365-barometer.com` (no trailing slash) if it still points at `workers.dev`, then rerun the deploy. Requests to the custom domain already canonicalize to `www`. The variable is what the `workers.dev` hostname uses for canonical URLs and the sitemap.
+4. Confirm with `curl` (no browser) that `/`, `/robots.txt`, `/sitemap.xml`, and a product page return real content.
+
 ## Local Setup
 
 Use Node.js `20.18.1` or newer.

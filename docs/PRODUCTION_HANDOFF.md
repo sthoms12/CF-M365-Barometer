@@ -1,6 +1,6 @@
 # Production Handoff
 
-Last updated: June 7, 2026
+Last updated: October 18, 2026
 
 This is the restart point for M365 Barometer production work.
 
@@ -10,7 +10,7 @@ This is the restart point for M365 Barometer production work.
 - GitHub repository: <https://github.com/sthoms12/CF-M365-Barometer>
 - Default branch: `main`
 - Deployment workflow: `Deploy Cloudflare`
-- Collector: external bot using the internal analysis API. `Last30Days Product Analysis` is deprecated and kept for manual dispatch.
+- Analysis: bot-driven through the internal API. See [Bot analysis](bot-analysis.md).
 - Production D1 database: `m365-barometer`
 - Cron schedule: daily at `06:15 UTC`
 - Deployment on pushes to `main`: enabled
@@ -29,29 +29,15 @@ evidence items. The result is visible on the live dashboard.
 
 - Replace `CLOUDFLARE_API_TOKEN` with a dedicated long-lived API token scoped only to the
   required Workers, D1, Workers AI, and route permissions.
-- Replace `WORKER_GITHUB_TOKEN` with a fine-grained token limited to this repository and
-  Actions workflow dispatch.
 - Record token owners and rotation dates outside the repository.
 
 Never store credential values in this document or any committed file.
 
 ### Priority 2: Improve Collection Quality
 
-The collector currently works without paid source APIs, but the first reading had low
-confidence because it found only six usable evidence items.
-
-Optional GitHub Actions secrets:
-
-- `BRAVE_API_KEY`
-- `XAI_API_KEY`
-- `SCRAPECREATORS_API_KEY`
-
-Optional repository variable:
-
-- `INCLUDE_SOURCES`
-
-After adding sources, trigger a product analysis and confirm evidence count, source diversity,
-and confidence improve before enabling more frequent analysis.
+Evidence collection runs in the external bot, not in this repository. See
+[Bot analysis](bot-analysis.md). After the bot ingests a product, confirm evidence
+count, source diversity, and confidence before increasing how often products are analyzed.
 
 ### Priority 3: Operations and Quality
 
@@ -60,7 +46,7 @@ and confidence improve before enabling more frequent analysis.
 - Add GitHub Actions budget notifications.
 - Add alerting for failed or timed-out analysis runs.
 - Establish a periodic D1 export/backup procedure.
-- Add integration tests for D1 ingestion, scheduling, and GitHub dispatch.
+- Keep integration coverage for D1 ingestion, scheduling, and bot run creation.
 - Add visible frontend error states to product and product-list pages.
 - Consider branch protection if the repository plan supports it.
 
@@ -120,25 +106,15 @@ The workflow:
 
 ## Analysis Runbook
 
-The daily Cron Trigger only times out stuck runs and enforces retention. The external
+Analysis is bot-driven. The daily Cron Trigger only times out stuck runs and enforces retention. The external
 bot creates each analysis run with `POST /api/internal/analysis-runs`, then calls start
 and ingest or fail. See [Bot analysis](bot-analysis.md).
-`.github/workflows/last30days.yml` is deprecated and remains only for a manual dispatch.
 
-Review recent runs:
-
-```powershell
-gh run list --repo sthoms12/CF-M365-Barometer --workflow last30days.yml --limit 10
-```
-
-Inspect a failed run:
+Inspect a failed run in Worker logs. Production run status is in D1 table `analysis_runs`.
 
 ```powershell
-gh run view <run-id> --repo sthoms12/CF-M365-Barometer --log-failed
 npx wrangler tail m365-barometer
 ```
-
-Production run status is also available in D1 table `analysis_runs`.
 
 ## Production Configuration
 
@@ -147,7 +123,6 @@ Configured GitHub Actions secrets:
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`
 - `INGEST_TOKEN`
-- `WORKER_GITHUB_TOKEN`
 
 Configured repository variables:
 
@@ -157,8 +132,6 @@ Configured repository variables:
 Not configured yet:
 
 - `CUSTOM_DOMAIN`
-- `INCLUDE_SOURCES`
-- Optional collector API keys
 
 `wrangler.jsonc` intentionally contains local-development placeholders. The deployment workflow
 creates ignored `wrangler.production.jsonc` from GitHub variables and discovered D1 resources.

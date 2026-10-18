@@ -25,7 +25,7 @@ Copy-Item .dev.vars.example .dev.vars
 npx wrangler d1 create m365-barometer
 ```
 
-Replace the D1 `database_id` and GitHub values in `wrangler.jsonc`, then:
+Replace the D1 `database_id` in `wrangler.jsonc`, then:
 
 ```powershell
 npm run types
@@ -42,24 +42,22 @@ Production deploys run from `.github/workflows/deploy.yml` after every push to `
 The workflow creates the D1 database when needed, applies migrations, deploys the Worker,
 configures Worker secrets, and smoke-tests the public health endpoint.
 
-1. Create a fine-grained GitHub token that can dispatch Actions workflows for this repository.
-2. Add these GitHub Actions repository secrets:
+Analysis is bot-driven. The external bot calls the internal API with `INGEST_TOKEN`. See [Bot analysis](docs/bot-analysis.md).
+
+1. Add these GitHub Actions repository secrets:
 
 - `CLOUDFLARE_API_TOKEN`: Cloudflare token with Workers Scripts, D1, and Workers AI permissions.
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID.
-- `INGEST_TOKEN`: A separate long random token shared by the Worker and collector workflow.
-- `WORKER_GITHUB_TOKEN`: The fine-grained GitHub token used by the Worker.
+- `INGEST_TOKEN`: A separate long random token shared by the Worker and the analysis bot.
 
-3. Add these GitHub Actions repository variables:
+2. Add these GitHub Actions repository variables:
 
 - `PUBLIC_BASE_URL`: The production origin, without a trailing slash. This can be added after the first deployment.
 - `CLOUDFLARE_DEPLOY_ENABLED`: Set to `true` only after the secrets above are configured.
 - `CUSTOM_DOMAIN`: Optional custom hostname. When set, deployment disables `workers.dev`.
-- `INCLUDE_SOURCES`: Optional collector source selection.
 
-4. Optionally add `BRAVE_API_KEY`, `XAI_API_KEY`, and `SCRAPECREATORS_API_KEY` as GitHub Actions secrets.
-5. Push to `main` or manually run the `Deploy Cloudflare` workflow.
-6. After the first deployment, set `PUBLIC_BASE_URL` to the deployed origin and rerun the workflow.
+3. Push to `main` or manually run the `Deploy Cloudflare` workflow.
+4. After the first deployment, set `PUBLIC_BASE_URL` to the deployed origin and rerun the workflow.
 
 Until `CLOUDFLARE_DEPLOY_ENABLED=true`, pushes still run the full check and build job but skip deployment.
 
@@ -67,9 +65,8 @@ The Cron Trigger runs daily at `06:15 UTC` to time out stuck runs and delete exp
 
 ## Security
 
-- `INGEST_TOKEN` protects run creation, runner context, lifecycle, and evidence ingestion.
-- `GITHUB_TOKEN` should be a fine-grained token limited to Actions workflow dispatch for this repository.
-- Public routes never expose raw collector payloads, tokens, or internal errors.
+- `INGEST_TOKEN` protects run creation, runner context, lifecycle, and evidence ingestion. The analysis bot sends it as a bearer token. See [Bot analysis](docs/bot-analysis.md).
+- Public routes never expose raw evidence payloads, tokens, or internal errors.
 
 ## Commands
 

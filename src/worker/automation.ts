@@ -2,79 +2,24 @@ import { getDueProducts, getProductBySlug, getProductRow } from "./db";
 
 type TriggerType = "scheduled";
 
-export async function dispatchGithubRun(
-  env: Env,
-  inputs: { analysis_run_id?: string },
-): Promise<void> {
-  const response = await fetch(
-    `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW}/dispatches`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-        "Content-Type": "application/json",
-        "User-Agent": "m365-barometer-worker",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify({
-        ref: "main",
-        inputs,
-      }),
-    },
-  );
-  if (!response.ok) throw new Error(`GitHub dispatch failed: ${response.status}`);
-}
-
 export async function createAnalysisRun(
   db: D1Database,
   productId: string,
   triggerType: TriggerType,
   requestKey?: string,
-): Promise<{ runId: string; dispatch: boolean }> {
+): Promise<string> {
   const key = requestKey ?? `${triggerType}:${productId}:${crypto.randomUUID()}`;
   const existing = await db.prepare(
-    "SELECT id, status, attempt_count FROM analysis_runs WHERE request_key = ?",
-  ).bind(key).first<{ id: string; status: string; attempt_count: number }>();
+    "SELECT id FROM analysis_runs WHERE request_key = ?",
+  ).bind(key).first<{ id: string }>();
+  if (existing) return existing.id;
 
-  const runId = existing?.id ?? crypto.randomUUID();
-  if (!existing) {
-    await db.prepare(`
-      INSERT INTO analysis_runs (
-        id, product_id, request_key, trigger_type, status, requested_at, attempt_count
-      ) VALUES (?, ?, ?, ?, 'pending', ?, 0)
-    `).bind(runId, productId, key, triggerType, new Date().toISOString()).run();
-  }
-
-  const dispatch = !existing || (existing.status !== "completed" && existing.attempt_count < 3);
-  return { runId, dispatch };
-}
-
-export async function createAndDispatchRun(
-  env: Env,
-  productId: string,
-  triggerType: TriggerType,
-  requestKey?: string,
-): Promise<string> {
-  const { runId, dispatch } = await createAnalysisRun(env.DB, productId, triggerType, requestKey);
-  if (!dispatch) return runId;
-
-  try {
-    await dispatchGithubRun(env, { analysis_run_id: runId });
-    await env.DB.prepare(`
-      UPDATE analysis_runs SET status = 'dispatched', dispatched_at = ?,
-        attempt_count = attempt_count + 1, error_code = NULL, error_message = NULL
-      WHERE id = ?
-    `).bind(new Date().toISOString(), runId).run();
-  } catch (error) {
-    await markRunFailed(
-      env.DB,
-      runId,
-      "DISPATCH_FAILED",
-      error instanceof Error ? error.message : "GitHub dispatch failed",
-    );
-    throw error;
-  }
+  const runId = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO analysis_runs (
+      id, product_id, request_key, trigger_type, status, requested_at, attempt_count
+    ) VALUES (?, ?, ?, ?, 'pending', ?, 0)
+  `).bind(runId, productId, key, triggerType, new Date().toISOString()).run();
   return runId;
 }
 
@@ -84,7 +29,7 @@ export async function createBotAnalysisRun(db: D1Database, productSlug?: string)
     : (await getDueProducts(db, 1))[0];
   if (!product) return productSlug ? { status: "not_found" as const } : { status: "none_due" as const };
 
-  const { runId } = await createAnalysisRun(db, product.id, "scheduled");
+  const runId = await createAnalysisRun(db, product.id, "scheduled");
   const context = await runnerContext(db, runId);
   if (!context) throw new Error("Analysis run context was not created");
   return { status: "created" as const, runId, context };

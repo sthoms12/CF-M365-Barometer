@@ -91,7 +91,6 @@ function env(assetsFetch?: (request: Request) => Promise<Response>) {
         limit: async () => ({ success: true }),
       },
       INGEST_TOKEN: "secret",
-      GITHUB_TOKEN: "github",
     },
   };
 }

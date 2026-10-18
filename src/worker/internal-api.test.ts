@@ -181,10 +181,6 @@ function createEnv(db: D1Database, ai?: () => Promise<unknown> | unknown): Env {
   return {
     DB: db,
     INGEST_TOKEN: TOKEN,
-    GITHUB_TOKEN: "github-token",
-    GITHUB_OWNER: "sthoms12",
-    GITHUB_REPO: "CF-M365-Barometer",
-    GITHUB_WORKFLOW: "last30days.yml",
     AI_MODEL: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     ASSETS: {} as Fetcher,
     AI: { run: async () => (ai ? ai() : { response: null }) } as unknown as Env["AI"],

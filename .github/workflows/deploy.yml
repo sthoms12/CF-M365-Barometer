@@ -20,7 +20,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          # Worker integration tests import node:sqlite, built in since Node 22.13.
+          node-version: "22"
           cache: npm
 
       - run: npm ci
@@ -44,7 +45,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - run: npm ci

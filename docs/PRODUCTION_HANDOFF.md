@@ -23,6 +23,18 @@ This is the restart point for M365 Barometer production work.
 The production smoke analysis completed for Microsoft 365 Copilot with six classified
 evidence items. The result is visible on the live dashboard.
 
+## Crawlability follow-up (October 2026)
+
+The Worker now prerenders `/`, `/products`, and `/products/<slug>`, and it serves `/robots.txt` and `/sitemap.xml`. `/api/*` is rate limited in the Worker (60 requests / 60 seconds per IP per Cloudflare location). Scoring and the collector are unchanged.
+
+After that change is merged and deployed:
+
+1. Turn Bot Fight Mode off on the `m365-barometer.com` zone. The Free plan cannot bypass it with a WAF skip rule, and it challenges `curl` and other non-browser clients before the Worker runs.
+2. Set `PUBLIC_BASE_URL` to `https://www.m365-barometer.com` if it is still the `workers.dev` origin, then rerun `Deploy Cloudflare`.
+3. `curl` `/`, `/robots.txt`, `/sitemap.xml`, and one product page on `https://www.m365-barometer.com`.
+
+No new secrets or migrations are required for this change.
+
 ## Remaining Work
 
 ### Priority 1: Tighten Credentials

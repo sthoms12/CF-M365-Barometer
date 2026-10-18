@@ -32,7 +32,17 @@ a { color: inherit; text-decoration: none; }
 .site-header nav a { display: flex; gap: 7px; align-items: center; padding: 8px 11px; color: #aebdc1; font-size: 14px; }
 .site-header nav a.active, .site-header nav a:hover { color: white; background: #223039; }
 
-main { min-height: calc(100vh - 64px); }
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+#root > main, #prerender > main { flex: 1; }
+#prerender { min-height: 100vh; display: flex; flex-direction: column; }
+.site-footer { padding: 22px 4vw 32px; border-top: 1px solid var(--line); background: var(--paper); color: var(--ink); font-size: 14px; }
+.site-footer p { margin: 0; }
+.reading-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 18px; }
+.reading-list a { font: 600 17px "Space Grotesk", sans-serif; }
+.reading-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.reading-facts div { background: var(--paper); border: 1px solid var(--line); padding: 14px; }
+.reading-facts dt { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.reading-facts dd { margin: 6px 0 0; font: 600 22px "Space Grotesk", sans-serif; }
 .dashboard-intro {
   padding: 64px 6vw 52px; background:
     linear-gradient(120deg, rgba(0,164,180,.15), transparent 45%),
@@ -133,8 +143,8 @@ td small { color: var(--muted); margin-top: 3px; font-size: 10px; }
 }
 @media (max-width: 650px) {
   .site-header { height: auto; padding: 10px 14px; align-items: flex-start; }
-  .site-header nav a { padding: 8px; }
-  .site-header nav a span, .site-header nav a { font-size: 0; gap: 0; }
+  #root .site-header nav a { padding: 8px; font-size: 0; gap: 0; }
+  .reading-facts { grid-template-columns: 1fr; }
   .dashboard-intro { padding: 42px 20px; }
   .dashboard-sections, .page-shell { padding: 25px 14px 60px; }
   .product-grid, .product-grid.wide, .mention-list, .signal-columns { grid-template-columns: 1fr; }

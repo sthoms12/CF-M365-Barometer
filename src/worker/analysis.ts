@@ -61,12 +61,26 @@ async function runAi(env: Env, productName: string, evidence: EvidenceItem[]): P
   return parseAiAnalysisResponse(result.response);
 }
 
+export class AiScoringError extends Error {
+  readonly errorCode = "AI_SCORING_FAILED" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "AiScoringError";
+  }
+}
+
 async function analyzeWithRetry(env: Env, productName: string, evidence: EvidenceItem[]) {
   try {
     return await runAi(env, productName, evidence);
   } catch (error) {
     console.warn(JSON.stringify({ event: "ai_retry", message: error instanceof Error ? error.message : "unknown" }));
-    return runAi(env, productName, evidence.slice(0, 30));
+    try {
+      return await runAi(env, productName, evidence.slice(0, 30));
+    } catch (retryError) {
+      const message = retryError instanceof Error ? retryError.message : "AI scoring failed";
+      throw new AiScoringError(message || "AI scoring failed");
+    }
   }
 }
 

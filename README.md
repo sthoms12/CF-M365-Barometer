@@ -9,8 +9,8 @@ For the live production state, remaining work, and exact resume steps, see
 
 - One Cloudflare Worker serves the API, scheduled handler, and React static assets.
 - Cloudflare D1 stores products, analysis runs, snapshots, and sample mentions.
-- Cloudflare Cron Triggers create due analysis runs and dispatch GitHub Actions.
-- GitHub Actions runs the Last30Days Python collector because the full engine requires Python, subprocesses, and `yt-dlp`.
+- Cloudflare Cron Triggers time out stuck analysis runs and enforce snapshot retention.
+- An external bot claims due products through the internal API, collects evidence, and ingests it. See [Bot analysis](docs/bot-analysis.md).
 - Workers AI classifies evidence and writes summaries. Worker code calculates all public metrics deterministically.
 
 No manual JSON import workflow is included.
@@ -63,11 +63,11 @@ configures Worker secrets, and smoke-tests the public health endpoint.
 
 Until `CLOUDFLARE_DEPLOY_ENABLED=true`, pushes still run the full check and build job but skip deployment.
 
-The Cron Trigger runs daily at `06:15 UTC` and dispatches at most three due products. Each successful product analysis schedules its next run seven days later.
+The Cron Trigger runs daily at `06:15 UTC` to time out stuck runs and delete expired snapshots. The external bot claims due products. A successful analysis schedules the next run seven days later, and a failure defers that product by one day.
 
 ## Security
 
-- `INGEST_TOKEN` protects runner context, lifecycle, and evidence ingestion.
+- `INGEST_TOKEN` protects run creation, runner context, lifecycle, and evidence ingestion.
 - `GITHUB_TOKEN` should be a fine-grained token limited to Actions workflow dispatch for this repository.
 - Public routes never expose raw collector payloads, tokens, or internal errors.
 

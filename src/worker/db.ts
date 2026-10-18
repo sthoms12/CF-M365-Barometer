@@ -109,14 +109,22 @@ export async function getProductRow(db: D1Database, id: string): Promise<Product
   return db.prepare("SELECT * FROM products WHERE id = ?").bind(id).first<ProductRow>();
 }
 
+const DUE_PRODUCTS_SQL = `
+  SELECT * FROM products
+  WHERE is_active = 1
+    AND lifecycle_status = 'active'
+    AND (next_analysis_at IS NULL OR next_analysis_at <= datetime('now'))
+  ORDER BY COALESCE(next_analysis_at, '1970-01-01') ASC, slug ASC
+`;
+
 export async function getDueProducts(db: D1Database, limit: number): Promise<ProductRow[]> {
-  const { results } = await db.prepare(`
-    SELECT * FROM products
-    WHERE is_active = 1 AND (next_analysis_at IS NULL OR next_analysis_at <= datetime('now'))
-    ORDER BY COALESCE(next_analysis_at, '1970-01-01') ASC
-    LIMIT ?
-  `).bind(limit).all<ProductRow>();
+  const { results } = await db.prepare(`${DUE_PRODUCTS_SQL} LIMIT ?`).bind(limit).all<ProductRow>();
   return results;
+}
+
+export async function listDueProductSlugs(db: D1Database): Promise<string[]> {
+  const { results } = await db.prepare(DUE_PRODUCTS_SQL).all<Pick<ProductRow, "slug">>();
+  return results.map((product) => product.slug);
 }
 
 export async function getPreviousScore(db: D1Database, productId: string): Promise<number | null> {

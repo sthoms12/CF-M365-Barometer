@@ -10,7 +10,7 @@ This is the restart point for M365 Barometer production work.
 - GitHub repository: <https://github.com/sthoms12/CF-M365-Barometer>
 - Default branch: `main`
 - Deployment workflow: `Deploy Cloudflare`
-- Collector workflow: `Last30Days Product Analysis`
+- Collector: external bot using the internal analysis API. `Last30Days Product Analysis` is deprecated and kept for manual dispatch.
 - Production D1 database: `m365-barometer`
 - Cron schedule: daily at `06:15 UTC`
 - Deployment on pushes to `main`: enabled
@@ -55,7 +55,7 @@ and confidence improve before enabling more frequent analysis.
 
 ### Priority 3: Operations and Quality
 
-- Confirm the daily Cron Trigger dispatches due products successfully over a full week.
+- Confirm the daily Cron Trigger times out stuck runs and the external bot claims due products.
 - Add Cloudflare usage/billing notifications for Workers AI, Workers, and D1.
 - Add GitHub Actions budget notifications.
 - Add alerting for failed or timed-out analysis runs.
@@ -120,9 +120,10 @@ The workflow:
 
 ## Analysis Runbook
 
-Normal analyses are created by the Worker through the daily Cron Trigger. The
-Worker dispatches `.github/workflows/last30days.yml`, which collects evidence and ingests it
-back into the Worker.
+The daily Cron Trigger only times out stuck runs and enforces retention. The external
+bot creates each analysis run with `POST /api/internal/analysis-runs`, then calls start
+and ingest or fail. See [Bot analysis](bot-analysis.md).
+`.github/workflows/last30days.yml` is deprecated and remains only for a manual dispatch.
 
 Review recent runs:
 

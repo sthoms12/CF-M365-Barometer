@@ -1,3 +1,6 @@
+# Deprecated: the scheduled runner is now an external bot that calls
+# POST /api/internal/analysis-runs with Bearer INGEST_TOKEN.
+# This workflow is kept so a manual dispatch can still collect evidence.
 name: Last30Days Product Analysis
 
 on:

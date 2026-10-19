@@ -74,6 +74,45 @@ export type Last30DaysResult = {
   }>;
 };
 
+export type SignalLabel = "Hot" | "Neutral" | "Cold";
+export type SignalConfidence = "Low" | "Medium" | "High" | "not enough data";
+
+export type SupplyDemandIndex = {
+  index: number;
+  raw: number;
+  weeks: number;
+  estimated: boolean;
+};
+
+export type SupplyDemandScore = {
+  week: string | null;
+  supply: SupplyDemandIndex | null;
+  demand: SupplyDemandIndex | null;
+  gap: number | null;
+  momentum: number | null;
+  label: SignalLabel | null;
+  confidence: SignalConfidence;
+  sources: number;
+  status: "ok" | "not_enough_data";
+  estimated: boolean;
+};
+
+export const externalSignalSources = ["x", "youtube", "tech_community"] as const;
+
+export const externalSignalSchema = z.object({
+  signals: z.array(z.object({
+    productSlug: z.string().trim().min(1).max(80),
+    week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    source: z.enum(externalSignalSources),
+    kind: z.enum(["supply", "demand"]),
+    value: z.number().finite().nonnegative(),
+    estimated: z.boolean().optional(),
+    meta: z.record(z.unknown()).optional(),
+  })).min(1).max(200),
+});
+
+export type ExternalSignalInput = z.infer<typeof externalSignalSchema>;
+
 export type ProductSummary = {
   id: string;
   slug: string;
@@ -85,6 +124,7 @@ export type ProductSummary = {
   snapshot: SnapshotSummary | null;
   isStale: boolean;
   lifecycleStatus?: "draft" | "ready" | "active" | "archived";
+  supplyDemand?: SupplyDemandScore;
 };
 
 export type SnapshotSummary = {

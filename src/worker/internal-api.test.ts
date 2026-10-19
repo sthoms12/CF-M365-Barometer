@@ -196,17 +196,25 @@ async function api(env: Env, path: string, init: RequestInit = {}, token: string
 }
 
 async function runCron(env: Env) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("signal fetch disabled in cron test");
+  };
   let pending: Promise<void> = Promise.resolve();
-  await worker.scheduled(
-    { cron: "15 6 * * *", scheduledTime: Date.now(), noRetry() {} } as ScheduledController,
-    env,
-    {
-      waitUntil(promise: Promise<void>) { pending = promise; },
-      passThroughOnException() {},
-      props: {},
-    } as ExecutionContext,
-  );
-  await pending;
+  try {
+    await worker.scheduled(
+      { cron: "15 6 * * *", scheduledTime: Date.now(), noRetry() {} } as ScheduledController,
+      env,
+      {
+        waitUntil(promise: Promise<void>) { pending = promise; },
+        passThroughOnException() {},
+        props: {},
+      } as ExecutionContext,
+    );
+    await pending;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 function productRow(sqlite: DatabaseSync, id: string) {

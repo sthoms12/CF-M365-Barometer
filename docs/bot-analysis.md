@@ -164,6 +164,71 @@ Both fields are optional. They default to `COLLECTOR_FAILED` and `Collector fail
 
 The run is marked `failed`. `next_analysis_at` is set to one day later so the same product is not immediately claimed again.
 
+## Push weekly signals
+
+The Worker cron collects message center, roadmap, Wikipedia pageviews, and Hacker News for the last completed ISO week. It does not call X, YouTube, or Tech Community. Push those counts here. Reddit is not accepted.
+
+```http
+POST /api/internal/signals
+Content-Type: application/json
+```
+
+```json
+{
+  "signals": [
+    {
+      "productSlug": "microsoft-365-copilot",
+      "week": "2026-10-12",
+      "source": "x",
+      "kind": "demand",
+      "value": 832
+    },
+    {
+      "productSlug": "microsoft-365-copilot",
+      "week": "2026-10-12",
+      "source": "youtube",
+      "kind": "supply",
+      "value": 14
+    },
+    {
+      "productSlug": "microsoft-365-copilot",
+      "week": "2026-10-12",
+      "source": "tech_community",
+      "kind": "demand",
+      "value": 6,
+      "estimated": false
+    }
+  ]
+}
+```
+
+`source` is `x`, `youtube`, or `tech_community`. `x` must be `demand`. `youtube` must be `supply`. `tech_community` may be either: use `supply` for blog posts and `demand` for question volume. One row is stored per product, week, and source, so a second post for the same key replaces the first.
+
+`week` is an ISO date. A date that is not a Monday is stored on that week's Monday. `value` is a count, not a score. Set `estimated` when the count is incomplete. `meta` is an optional object stored with the row.
+
+```json
+{ "stored": 3 }
+```
+
+- `400` when the body, source, or kind is not valid.
+- `404` `{ "error": "Product not found: <slug>" }` when a slug is missing.
+- `401` when the bearer token is missing or wrong.
+
+## Backfill Wikipedia and Hacker News
+
+```http
+POST /api/internal/signals/backfill
+Content-Type: application/json
+```
+
+```json
+{ "weeks": 26, "sources": ["wikipedia", "hacker_news"] }
+```
+
+`weeks` defaults to 26 and cannot exceed 26. `sources` defaults to both Wikipedia and Hacker News. Message center and roadmap are not backfilled here; the daily cron records the latest completed week from those feeds. Optional `productSlug` limits the run to one product, including an inactive one.
+
+The response lists `wrote`, `skipped` (products with no Wikipedia article), and `errors`. A missing `productSlug` returns `404`.
+
 ## Timeout
 
 A run still `pending`, `dispatched`, `collecting`, or `synthesizing` 30 minutes after `requested_at` is marked `failed` with `error_code` `RUN_TIMEOUT`. Its product is also deferred by one day. The cron performs that update and the snapshot retention cleanup.

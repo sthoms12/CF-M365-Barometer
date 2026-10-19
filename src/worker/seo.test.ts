@@ -146,8 +146,34 @@ describe("public HTML", () => {
   it("does not invent a score when D1 has no snapshot", () => {
     const html = applySeoToShell(shell, buildProductPage(product(), []));
     expect(html).toContain("No automated reading is stored for this product yet.");
+    expect(html).toContain("Supply vs demand");
+    expect(html).toContain("Not enough data");
     expect(html).not.toContain("Barometer score:");
+    expect(html).not.toContain("Hot");
     expect(html).not.toContain("variableMeasured");
+  });
+
+  it("renders a supply versus demand score and marks estimates", () => {
+    const html = applySeoToShell(shell, buildProductPage(product({
+      supplyDemand: {
+        week: "2026-10-05",
+        supply: { index: 40, raw: 2, weeks: 4, estimated: false },
+        demand: { index: 88, raw: 10, weeks: 4, estimated: true },
+        gap: 48,
+        momentum: 20,
+        label: "Hot",
+        confidence: "Medium",
+        sources: 3,
+        status: "ok",
+        estimated: true,
+      },
+    }), []));
+    expect(html).toContain("Week of 2026-10-05");
+    expect(html).toContain("Supply: 40");
+    expect(html).toContain("Demand: 88 (estimate)");
+    expect(html).toContain("Supply vs demand: +48 (estimate)");
+    expect(html).toContain("Hot (estimate)");
+    expect(html).toContain("Confidence: Medium");
   });
 
   it("escapes product text and drops unsafe mention URLs", () => {

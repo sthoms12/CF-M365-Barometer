@@ -95,6 +95,7 @@ export type SupplyDemandScore = {
   sources: number;
   status: "ok" | "not_enough_data";
   estimated: boolean;
+  pendingSources: Array<{ source: string; weeks: number }>;
 };
 
 export const externalSignalSources = ["x", "youtube", "tech_community"] as const;

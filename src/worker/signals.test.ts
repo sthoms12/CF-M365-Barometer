@@ -5,6 +5,7 @@ import {
   itemMatches,
   lastCompletedWeek,
   resolveSignalProfile,
+  MIN_SOURCE_WEEKS,
   scoreSupplyDemand,
   sumPageviewsByWeek,
   weekSequence,
@@ -175,17 +176,76 @@ describe("supply versus demand score", () => {
     });
   });
 
-  it("marks a short history as an estimate and withholds the label", () => {
+  it("withholds every source until it has four non-null weeks", () => {
     const score = scoreSupplyDemand([
       { week: "2026-10-05", source: "wikipedia", kind: "demand", value: 10, estimated: true },
       { week: "2026-10-05", source: "hacker_news", kind: "demand", value: 1 },
       { week: "2026-10-05", source: "message_center", kind: "supply", value: 2 },
     ], NOW);
+    expect(MIN_SOURCE_WEEKS).toBe(4);
     expect(score.label).toBeNull();
     expect(score.status).toBe("not_enough_data");
-    expect(score.demand?.estimated).toBe(true);
-    expect(score.demand?.index).toBe(50);
-    expect(score.confidence).toBe("Medium");
+    expect(score.supply).toBeNull();
+    expect(score.demand).toBeNull();
+    expect(score.momentum).toBeNull();
+    expect(score.sources).toBe(0);
+    expect(score.confidence).toBe("not enough data");
+    expect(score.pendingSources).toEqual([
+      { source: "hacker_news", weeks: 1 },
+      { source: "message_center", weeks: 1 },
+      { source: "wikipedia", weeks: 1 },
+    ]);
+  });
+
+  it("does not let a one-week X source change the index", () => {
+    const weeks = ["2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"];
+    const established = weeks.flatMap((week) => [
+      { week, source: "wikipedia", kind: "demand" as const, value: 10 },
+      { week, source: "hacker_news", kind: "demand" as const, value: 2 },
+      { week, source: "message_center", kind: "supply" as const, value: 5 },
+    ]);
+    const baseline = scoreSupplyDemand(established, NOW);
+    const withOneWeek = scoreSupplyDemand([
+      ...established,
+      { week: "2026-10-05", source: "x", kind: "demand", value: 5000 },
+    ], NOW);
+
+    expect(withOneWeek.demand?.index).toBe(baseline.demand?.index);
+    expect(withOneWeek.supply?.index).toBe(baseline.supply?.index);
+    expect(withOneWeek.momentum).toBe(baseline.momentum);
+    expect(withOneWeek.sources).toBe(baseline.sources);
+    expect(withOneWeek.confidence).toBe(baseline.confidence);
+    expect(withOneWeek.status).toBe(baseline.status);
+    expect(withOneWeek.label).toBe(baseline.label);
+    expect(withOneWeek.pendingSources).toEqual([{ source: "x", weeks: 1 }]);
+    expect(baseline.demand?.index).toBe(50);
+    expect(baseline.sources).toBe(3);
+  });
+
+  it("counts an X source once it reaches four weeks", () => {
+    const weeks = ["2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"];
+    const established = weeks.flatMap((week) => [
+      { week, source: "wikipedia", kind: "demand" as const, value: 10 },
+      { week, source: "hacker_news", kind: "demand" as const, value: 2 },
+      { week, source: "message_center", kind: "supply" as const, value: 5 },
+    ]);
+    const baseline = scoreSupplyDemand(established, NOW);
+    const withFourWeeks = scoreSupplyDemand([
+      ...established,
+      ...weeks.map((week) => ({
+        week,
+        source: "x",
+        kind: "demand" as const,
+        value: week === "2026-10-05" ? 5000 : 1,
+      })),
+    ], NOW);
+
+    expect(withFourWeeks.pendingSources).toEqual([]);
+    expect(withFourWeeks.sources).toBe(4);
+    expect(withFourWeeks.demand?.index).not.toBe(baseline.demand?.index);
+    expect(withFourWeeks.demand?.index).toBe(88);
+    expect(withFourWeeks.momentum).not.toBe(baseline.momentum);
+    expect(withFourWeeks.confidence).toBe("Medium");
   });
 
   it("labels a four-week demand spike Hot against the product's own history", () => {

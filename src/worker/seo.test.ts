@@ -166,6 +166,7 @@ describe("public HTML", () => {
         sources: 3,
         status: "ok",
         estimated: true,
+        pendingSources: [],
       },
     }), []));
     expect(html).toContain("Week of 2026-10-05");

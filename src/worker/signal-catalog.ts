@@ -4,6 +4,8 @@ import type { SupplyDemandScore } from "../shared/contracts";
 export const HISTORY_WEEKS = 26;
 /** Fewer stored weeks than this makes an index an estimate. */
 export const MIN_WEEKS_FOR_FULL_INDEX = 4;
+/** A source joins the index after this many non-null weeks for the product. */
+export const MIN_SOURCE_WEEKS = 4;
 /** Hot / Neutral / Cold needs this many sources in the scored week. */
 export const MIN_SOURCES_FOR_LABEL = 3;
 
@@ -239,19 +241,27 @@ export function emptySupplyDemand(): SupplyDemandScore {
     sources: 0,
     status: "not_enough_data",
     estimated: false,
+    pendingSources: [],
   };
 }
 
 export function scoreSupplyDemand(signals: readonly ScoreSignal[], now: Date): SupplyDemandScore {
-  const usable = signals.filter((signal) => signal.week && (signal.kind === "supply" || signal.kind === "demand"));
-  if (usable.length === 0) return emptySupplyDemand();
-
   const currentWeek = isoWeekStart(now);
+  const recorded = signals.filter((signal) =>
+    signal.week && signal.week <= currentWeek && (signal.kind === "supply" || signal.kind === "demand"),
+  );
+  if (recorded.length === 0) return emptySupplyDemand();
+
+  const pendingSources = listPendingSources(recorded);
+  const pending = new Set(pendingSources.map((entry) => entry.source));
+  const usable = recorded.filter((signal) => !pending.has(signal.source));
+  if (usable.length === 0) return { ...emptySupplyDemand(), pendingSources };
+
   const completedWeek = shiftWeek(currentWeek, -1);
-  const weeks = [...new Set(usable.map((signal) => signal.week))].filter((week) => week <= currentWeek).sort();
+  const weeks = [...new Set(usable.map((signal) => signal.week))].sort();
   const completed = weeks.filter((week) => week <= completedWeek);
   const scoreWeek = completed.at(-1) ?? weeks.at(-1);
-  if (!scoreWeek) return emptySupplyDemand();
+  if (!scoreWeek) return { ...emptySupplyDemand(), pendingSources };
   const partial = scoreWeek === currentWeek;
 
   const windowStart = shiftWeek(scoreWeek, -(HISTORY_WEEKS - 1));
@@ -295,7 +305,22 @@ export function scoreSupplyDemand(signals: readonly ScoreSignal[], now: Date): S
     sources,
     status: label ? "ok" : "not_enough_data",
     estimated: Boolean(label && estimated) || Boolean(gap !== null && estimated),
+    pendingSources,
   };
+}
+
+function listPendingSources(signals: readonly ScoreSignal[]): SupplyDemandScore["pendingSources"] {
+  const weeks = new Map<string, Set<string>>();
+  for (const signal of signals) {
+    if (typeof signal.value !== "number" || Number.isNaN(signal.value)) continue;
+    const seen = weeks.get(signal.source) ?? new Set<string>();
+    seen.add(signal.week);
+    weeks.set(signal.source, seen);
+  }
+  return [...weeks]
+    .filter(([, seen]) => seen.size < MIN_SOURCE_WEEKS)
+    .map(([source, seen]) => ({ source, weeks: seen.size }))
+    .sort((left, right) => left.source.localeCompare(right.source));
 }
 
 function labelFor(heat: number, momentum: number): SupplyDemandScore["label"] {

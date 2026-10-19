@@ -204,6 +204,8 @@ Content-Type: application/json
 
 `source` is `x`, `youtube`, or `tech_community`. `x` must be `demand`. `youtube` must be `supply`. `tech_community` may be either: use `supply` for blog posts and `demand` for question volume. One row is stored per product, week, and source, so a second post for the same key replaces the first.
 
+A source is stored as soon as it arrives. It stays out of the supply index, the demand index, momentum, and the source count behind confidence until that product has at least 4 non-null weeks for it (`MIN_SOURCE_WEEKS`). The product API still lists a younger source in `pendingSources`, for example `[{ "source": "x", "weeks": 1 }]`.
+
 `week` is an ISO date. A date that is not a Monday is stored on that week's Monday. `value` is a count, not a score. Set `estimated` when the count is incomplete. `meta` is an optional object stored with the row.
 
 ```json

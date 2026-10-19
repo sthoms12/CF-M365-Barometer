@@ -3,13 +3,15 @@ name: Deploy Cloudflare
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-production
+  group: ${{ github.event_name == 'pull_request' && github.ref || 'cloudflare-production' }}
   cancel-in-progress: false
 
 jobs:
@@ -29,7 +31,7 @@ jobs:
       - run: npm run build
 
   deploy:
-    if: vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    if: github.event_name != 'pull_request' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
     needs: check
     runs-on: ubuntu-latest
     environment: production

@@ -1,10 +1,32 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import type { ProductSummary } from "../../shared/contracts";
+import type { ProductSummary, SupplyDemandScore } from "../../shared/contracts";
 import { api, formatDate } from "../api";
 import { EmptyState, MentionList, Momentum, Score, TemperatureBadge, TrendChart } from "../components";
 
 type Detail = { product: ProductSummary; mentions: Array<Record<string, unknown>> };
+
+function withEstimate(text: string, estimated: boolean): string {
+  return estimated ? `${text} (estimate)` : text;
+}
+
+function SupplyDemand({ score }: { score: SupplyDemandScore | undefined }) {
+  if (!score || (score.status === "not_enough_data" && !score.supply && !score.demand)) {
+    return <section className="detail-band"><h2>Supply vs demand</h2><p>Not enough data</p></section>;
+  }
+  const gap = score.gap === null ? "Not enough data" : withEstimate(score.gap > 0 ? `+${score.gap}` : String(score.gap), score.estimated);
+  return (
+    <section className="detail-band">
+      <h2>Supply vs demand</h2>
+      {score.week ? <p>Week of {score.week}</p> : null}
+      <p>Supply: {score.supply ? withEstimate(String(score.supply.index), score.supply.estimated) : "Not enough data"}</p>
+      <p>Demand: {score.demand ? withEstimate(String(score.demand.index), score.demand.estimated) : "Not enough data"}</p>
+      <p>Supply vs demand: {gap}</p>
+      <p>{score.label ? withEstimate(score.label, score.estimated) : "Not enough data"}</p>
+      <p>Confidence: {score.confidence}</p>
+    </section>
+  );
+}
 
 export function ProductPage() {
   const { slug } = useParams();
@@ -29,6 +51,7 @@ export function ProductPage() {
         </div>
         {snapshot ? <Score value={snapshot.barometerScore} size="large" /> : <span className="no-score">Pending first reading</span>}
       </section>
+      <SupplyDemand score={product.supplyDemand} />
       {!snapshot ? <EmptyState message="The first automated Last30Days analysis is scheduled. No manual import is required." /> : (
         <>
           <section className="metric-strip">

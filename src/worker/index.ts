@@ -17,6 +17,7 @@ import {
 } from "./automation";
 import { rateLimitPublicApi } from "./rate-limit";
 import { bearerAuth } from "./security";
+import { backfillSignalHistory, ingestExternalSignals, readSupplyDemand } from "./signals";
 import {
   applySeoToShell,
   buildHomePage,
@@ -88,7 +89,8 @@ app.get("/api/products/:slug", async (context) => {
   const product = await getProductBySlug(context.env.DB, context.req.param("slug"));
   if (!product) return context.json({ error: "Product not found" }, 404);
   const mentions = product.snapshot ? await getMentions(context.env.DB, product.snapshot.id) : [];
-  return context.json({ product, mentions });
+  const supplyDemand = await readSupplyDemand(context.env.DB, product.id);
+  return context.json({ product: { ...product, supplyDemand }, mentions });
 });
 
 app.get("/api/products/:slug/history", async (context) => {
@@ -150,6 +152,53 @@ app.post("/api/internal/analysis-runs/:id/ingest", async (context) => {
     await markRunFailed(context.env.DB, runId, error.errorCode, message);
     return context.json({ errorCode: error.errorCode, message }, 500);
   }
+});
+app.post("/api/internal/signals/backfill", async (context) => {
+  const raw = await context.req.text();
+  let body: { weeks?: unknown; productSlug?: unknown; sources?: unknown } = {};
+  if (raw.trim()) {
+    try {
+      body = JSON.parse(raw) as typeof body;
+    } catch {
+      return context.json({ error: "Expected a JSON object" }, 400);
+    }
+  }
+  const weeks = body.weeks === undefined ? 26 : body.weeks;
+  if (typeof weeks !== "number" || !Number.isInteger(weeks) || weeks < 1 || weeks > 26) {
+    return context.json({ error: "weeks must be an integer from 1 to 26" }, 400);
+  }
+  const productSlug = body.productSlug === undefined ? undefined : body.productSlug;
+  if (productSlug !== undefined && typeof productSlug !== "string") {
+    return context.json({ error: "productSlug must be a string" }, 400);
+  }
+  const allowed = new Set(["wikipedia", "hacker_news"]);
+  const sources = body.sources === undefined ? undefined : body.sources;
+  if (sources !== undefined && (!Array.isArray(sources) || sources.some((source) => typeof source !== "string" || !allowed.has(source)))) {
+    return context.json({ error: "sources must be wikipedia and hacker_news" }, 400);
+  }
+  const result = await backfillSignalHistory(context.env, {
+    weeks,
+    productSlug,
+    sources: sources as Array<"wikipedia" | "hacker_news"> | undefined,
+  });
+  if (productSlug && result.errors.some((error) => error.message === "Product not found")) {
+    return context.json({ error: "Product not found" }, 404);
+  }
+  return context.json(result);
+});
+app.post("/api/internal/signals", async (context) => {
+  let body: unknown;
+  try {
+    body = await context.req.json();
+  } catch {
+    return context.json({ error: "Expected a JSON object" }, 400);
+  }
+  const result = await ingestExternalSignals(context.env.DB, body);
+  if ("error" in result) {
+    const status = result.error.startsWith("Product not found") ? 404 : 400;
+    return context.json({ error: result.error }, status);
+  }
+  return context.json(result);
 });
 app.post("/api/internal/analysis-runs/:id/fail", async (context) => {
   const body = await context.req.json<{ errorCode?: string; errorMessage?: string }>();
@@ -222,7 +271,8 @@ async function renderHtmlPage(
     const mentions = product.snapshot
       ? asMentions(await getMentions(context.env.DB, product.snapshot.id))
       : [];
-    page = buildProductPage(product, mentions);
+    const supplyDemand = await readSupplyDemand(context.env.DB, product.id);
+    page = buildProductPage({ ...product, supplyDemand }, mentions);
   }
 
   const shell = await context.env.ASSETS.fetch(new Request(new URL("/index.html", context.req.url)));

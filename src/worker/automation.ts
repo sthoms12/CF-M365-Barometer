@@ -1,4 +1,5 @@
 import { getDueProducts, getProductBySlug, getProductRow } from "./db";
+import { collectWeeklySignals } from "./signals";
 
 type TriggerType = "scheduled";
 
@@ -36,9 +37,16 @@ export async function createBotAnalysisRun(db: D1Database, productSlug?: string)
 }
 
 export async function runScheduledMonitoring(env: Env): Promise<void> {
-  // The external bot claims due products. Cron only times out stuck runs and enforces retention.
+  // The external bot claims due products. Cron times out stuck runs, enforces retention,
+  // and collects the free weekly supply and demand signals.
   await reconcileRuns(env.DB);
   await cleanupRetention(env.DB);
+  try {
+    await collectWeeklySignals(env);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Signal collection failed";
+    console.error(JSON.stringify({ event: "signal_collection_failed", message }));
+  }
 }
 
 export async function reconcileRuns(db: D1Database): Promise<void> {

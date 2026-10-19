@@ -1,4 +1,4 @@
-import type { ProductSummary, SnapshotSummary } from "../shared/contracts";
+import type { ProductSummary, SnapshotSummary, SupplyDemandScore } from "../shared/contracts";
 
 export const CANONICAL_ORIGIN = "https://www.m365-barometer.com";
 export const INDEPENDENT_DISCLAIMER = "Independent project, not affiliated with Microsoft.";
@@ -141,6 +141,7 @@ export function buildProductPage(product: ProductSummary, mentions: PublicMentio
       ? `<h2>Negative signals</h2><ul>${snapshot.negativeSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join("")}</ul>`
       : "",
     snapshot ? sourceSection(snapshot) : "",
+    supplyDemandSection(product.supplyDemand),
     mentions.length ? mentionSection(mentions) : "",
   ].join("");
   const mainHtml = `<main>
@@ -258,6 +259,42 @@ function sourceSection(snapshot: SnapshotSummary): string {
   return `<h2>Source breakdown</h2><ul>${items}</ul>`;
 }
 
+function supplyDemandSection(score: SupplyDemandScore | undefined): string {
+  if (!score || (score.status === "not_enough_data" && !score.supply && !score.demand)) {
+    return "<h2>Supply vs demand</h2><p>Not enough data</p>";
+  }
+  const lines = [
+    score.week ? `<p>Week of ${escapeHtml(score.week)}</p>` : "",
+    indexLine("Supply", score.supply),
+    indexLine("Demand", score.demand),
+    `<p>Supply vs demand: ${score.gap === null ? "Not enough data" : formatGap(score.gap, score.estimated)}</p>`,
+    `<p>${score.label ? `${escapeHtml(score.label)}${score.estimated ? " (estimate)" : ""}` : "Not enough data"}</p>`,
+    `<p>Confidence: ${escapeHtml(score.confidence)}</p>`,
+  ];
+  return `<h2>Supply vs demand</h2>${lines.join("")}`;
+}
+
+function indexLine(label: string, index: SupplyDemandScore["supply"]): string {
+  if (!index) return `<p>${label}: Not enough data</p>`;
+  const estimate = index.estimated ? " (estimate)" : "";
+  return `<p>${label}: ${index.index}${estimate}</p>`;
+}
+
+function formatGap(gap: number, estimated: boolean): string {
+  const text = gap > 0 ? `+${gap}` : String(gap);
+  return estimated ? `${text} (estimate)` : text;
+}
+
+function supplyDemandProperties(score: SupplyDemandScore | undefined): Array<ReturnType<typeof property>> {
+  if (!score || score.status === "not_enough_data") return [];
+  const measured = [];
+  if (score.supply) measured.push(property("supplyIndex", score.supply.index));
+  if (score.demand) measured.push(property("demandIndex", score.demand.index));
+  if (score.gap !== null) measured.push(property("supplyVsDemand", score.gap));
+  if (score.label) measured.push(property("supplyDemandLabel", score.label));
+  return measured;
+}
+
 function mentionSection(mentions: PublicMention[]): string {
   const articles = mentions.map((mention) => {
     const href = safeHttpUrl(mention.sourceUrl);
@@ -291,15 +328,17 @@ function productDataset(product: ProductSummary, url: string) {
   if (product.description) dataset.description = product.description;
   if (product.snapshot?.summary) dataset.description = product.snapshot.summary;
   if (modified) dataset.dateModified = modified;
-  if (product.snapshot) {
-    dataset.variableMeasured = [
+  const measured = product.snapshot
+    ? [
       property("barometerScore", product.snapshot.barometerScore),
       property("temperature", product.snapshot.temperature),
       property("momentum", product.snapshot.momentum),
       property("confidence", product.snapshot.confidence),
       property("discussionVolume", product.snapshot.discussionVolume),
-    ];
-  }
+    ]
+    : [];
+  measured.push(...supplyDemandProperties(product.supplyDemand));
+  if (measured.length) dataset.variableMeasured = measured;
   return dataset;
 }
 

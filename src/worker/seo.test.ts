@@ -138,6 +138,7 @@ describe("public HTML", () => {
     const json = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
     const data = JSON.parse(json ?? "{}") as { "@graph": Array<Record<string, unknown>> };
     const dataset = data["@graph"].find((node) => node["@type"] === "Dataset" && node.name === "Microsoft 365 Copilot");
+    expect(dataset?.license).toBe("https://creativecommons.org/licenses/by/4.0/");
     expect(dataset?.variableMeasured).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "barometerScore", value: 72 }),
     ]));

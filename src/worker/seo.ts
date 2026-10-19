@@ -13,6 +13,7 @@ const AI_CRAWLERS = [
 ] as const;
 
 const SITE_DESCRIPTION = "Public sentiment trends for Microsoft 365 products.";
+const DATASET_LICENSE = "https://creativecommons.org/licenses/by/4.0/";
 
 export type SitemapEntry = {
   path: string;
@@ -310,6 +311,7 @@ function catalogDataset(products: ProductSummary[], url: string) {
     name: "M365 Barometer",
     description: SITE_DESCRIPTION,
     url,
+    license: DATASET_LICENSE,
     isAccessibleForFree: true,
     creator: publisher(),
     hasPart: products.map((product) => productDataset(product, canonicalUrl(`/products/${encodeURIComponent(product.slug)}`))),
@@ -322,6 +324,7 @@ function productDataset(product: ProductSummary, url: string) {
     "@type": "Dataset",
     name: product.name,
     url,
+    license: DATASET_LICENSE,
     isAccessibleForFree: true,
     creator: publisher(),
   };

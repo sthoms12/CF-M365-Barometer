@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { ingestPayloadSchema } from "../shared/contracts";
+import { buildHomeSections } from "../shared/home";
 import { AiScoringError, ingestAnalysis } from "./analysis";
 import {
   getHistory,
@@ -62,27 +63,7 @@ app.get("/api/health", (context) => context.json({ ok: true }));
 app.get("/api/products", async (context) => context.json({ products: await getProducts(context.env.DB) }));
 
 app.get("/api/home", async (context) => {
-  const products = (await getProducts(context.env.DB)).filter((product) => product.snapshot);
-  const byScore = [...products].sort((a, b) => (b.snapshot?.barometerScore ?? 0) - (a.snapshot?.barometerScore ?? 0));
-  const byMomentum = [...products].sort((a, b) => (b.snapshot?.momentum ?? 0) - (a.snapshot?.momentum ?? 0));
-  const volumeRank = { "Very High": 4, High: 3, Medium: 2, Low: 1 };
-  const byVolume = [...products].sort((a, b) =>
-    volumeRank[b.snapshot?.discussionVolume ?? "Low"] - volumeRank[a.snapshot?.discussionVolume ?? "Low"],
-  );
-  const recentlyAnalyzed = [...products].sort((a, b) =>
-    new Date(b.lastAnalyzedAt ?? 0).getTime() - new Date(a.lastAnalyzedAt ?? 0).getTime(),
-  );
-
-  return context.json({
-    sections: {
-      heatingUp: byMomentum.filter((product) => (product.snapshot?.momentum ?? 0) > 0).slice(0, 5),
-      coolingOff: [...byMomentum].reverse().filter((product) => (product.snapshot?.momentum ?? 0) < 0).slice(0, 5),
-      highestScores: byScore.slice(0, 5),
-      lowestScores: [...byScore].reverse().slice(0, 5),
-      mostDiscussed: byVolume.slice(0, 5),
-      recentlyAnalyzed: recentlyAnalyzed.slice(0, 5),
-    },
-  });
+  return context.json({ sections: buildHomeSections(await getProducts(context.env.DB)) });
 });
 
 app.get("/api/products/:slug", async (context) => {
@@ -272,7 +253,11 @@ async function renderHtmlPage(
       ? asMentions(await getMentions(context.env.DB, product.snapshot.id))
       : [];
     const supplyDemand = await readSupplyDemand(context.env.DB, product.id);
-    page = buildProductPage({ ...product, supplyDemand }, mentions);
+    const history = (await getHistory(context.env.DB, product.id, 365)).map((row) => ({
+      analyzedAt: String(row.analyzedAt ?? ""),
+      barometerScore: Number(row.barometerScore ?? 0),
+    }));
+    page = buildProductPage({ ...product, supplyDemand }, mentions, history);
   }
 
   const shell = await context.env.ASSETS.fetch(new Request(new URL("/index.html", context.req.url)));

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { ProductSummary } from "../../shared/contracts";
 import { api } from "../api";
+import { readProductsBootstrap } from "../bootstrap";
 import { ProductCard } from "../components";
 
 export function ProductsPage() {
-  const [products, setProducts] = useState<ProductSummary[]>([]);
+  const [products, setProducts] = useState<ProductSummary[]>(() => readProductsBootstrap() ?? []);
   useEffect(() => { api<{ products: ProductSummary[] }>("/api/products").then((data) => setProducts(data.products)); }, []);
   return (
     <main className="page-shell">

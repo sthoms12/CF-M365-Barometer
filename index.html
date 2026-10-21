@@ -3,13 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preload" href="/assets/space-grotesk-latin-600.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/assets/dm-sans-latin-400.woff2" as="font" type="font/woff2" crossorigin />
     <meta name="theme-color" content="#101820" />
     <meta name="description" content="Public sentiment trends for Microsoft 365 products." />
     <title>M365 Barometer</title>
   </head>
   <body>
+    <noscript><style>.crawl-copy{display:block !important}.app-shell{display:none !important}</style></noscript>
     <div id="root"></div>
-    <footer class="site-footer">Independent project, not affiliated with Microsoft.</footer>
+    <footer class="site-footer"><p>Independent project, not affiliated with Microsoft.</p></footer>
     <script type="module" src="/src/client/main.tsx"></script>
   </body>
 </html>

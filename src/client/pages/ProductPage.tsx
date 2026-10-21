@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { ProductSummary, SupplyDemandScore } from "../../shared/contracts";
 import { api, formatDate } from "../api";
-import { EmptyState, MentionList, Momentum, Score, TemperatureBadge, TrendChart } from "../components";
+import { readProductBootstrap } from "../bootstrap";
+import { EmptyState, Momentum, Score, TemperatureBadge } from "../components";
+import { MentionList, TrendChart } from "../product-visuals";
 
 type Detail = { product: ProductSummary; mentions: Array<Record<string, unknown>> };
 
@@ -30,9 +32,16 @@ function SupplyDemand({ score }: { score: SupplyDemandScore | undefined }) {
 
 export function ProductPage() {
   const { slug } = useParams();
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [history, setHistory] = useState<Array<{ analyzedAt: string; barometerScore: number }>>([]);
+  const initial = readProductBootstrap();
+  const matched = initial && initial.product.slug === slug ? initial : null;
+  const [detail, setDetail] = useState<Detail | null>(matched ? { product: matched.product, mentions: matched.mentions } : null);
+  const [history, setHistory] = useState<Array<{ analyzedAt: string; barometerScore: number }>>(matched?.history ?? []);
   useEffect(() => {
+    const next = readProductBootstrap();
+    if (!next || next.product.slug !== slug) {
+      setDetail(null);
+      setHistory([]);
+    }
     api<Detail>(`/api/products/${slug}`).then(setDetail);
     api<{ history: Array<{ analyzedAt: string; barometerScore: number }> }>(`/api/products/${slug}/history`).then((data) => setHistory(data.history));
   }, [slug]);

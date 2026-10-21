@@ -1,4 +1,6 @@
 import type { ProductSummary, SnapshotSummary, SupplyDemandScore } from "../shared/contracts";
+import { renderHomeAppShell } from "./home-shell";
+import { renderProductAppShell, renderProductsAppShell, type ShellHistoryPoint } from "./page-shell";
 
 export const CANONICAL_ORIGIN = "https://www.m365-barometer.com";
 export const INDEPENDENT_DISCLAIMER = "Independent project, not affiliated with Microsoft.";
@@ -93,7 +95,7 @@ export function renderSitemap(entries: SitemapEntry[]): string {
 
 export function buildHomePage(products: ProductSummary[]): PublicPage {
   const items = products.map((product) => `<li>${renderProductSummary(product)}</li>`).join("");
-  const mainHtml = `<main>
+  const semantic = `<main>
     <h1>Microsoft 365 sentiment, measured in public.</h1>
     <p>Automated weekly readings from recent community discussions, scored consistently over time.</p>
     <p>Score measures sentiment. Momentum measures change from the previous reading.</p>
@@ -101,6 +103,7 @@ export function buildHomePage(products: ProductSummary[]): PublicPage {
     ${items ? `<ul>${items}</ul>` : "<p>No active products are stored.</p>"}
     <p><a href="/products">All products</a></p>
   </main>`;
+  const mainHtml = `<div class="crawl-copy">${semantic}</div>${renderHomeAppShell(products)}`;
   return {
     title: "M365 Barometer",
     description: SITE_DESCRIPTION,
@@ -112,11 +115,12 @@ export function buildHomePage(products: ProductSummary[]): PublicPage {
 
 export function buildProductsPage(products: ProductSummary[]): PublicPage {
   const items = products.map((product) => `<li>${renderProductSummary(product)}</li>`).join("");
-  const mainHtml = `<main>
+  const semantic = `<main>
     <h1>Microsoft 365 Products</h1>
     <p>Every active product receives an automated Last30Days reading once per week.</p>
     ${items ? `<ul>${items}</ul>` : "<p>No active products are stored.</p>"}
   </main>`;
+  const mainHtml = `<div class="crawl-copy">${semantic}</div>${renderProductsAppShell(products)}`;
   return {
     title: "Microsoft 365 Products | M365 Barometer",
     description: "Every active product receives an automated Last30Days reading once per week.",
@@ -126,7 +130,11 @@ export function buildProductsPage(products: ProductSummary[]): PublicPage {
   };
 }
 
-export function buildProductPage(product: ProductSummary, mentions: PublicMention[]): PublicPage {
+export function buildProductPage(
+  product: ProductSummary,
+  mentions: PublicMention[],
+  history: ShellHistoryPoint[] = [],
+): PublicPage {
   const snapshot = product.snapshot;
   const description = metaDescription(
     snapshot?.summary || product.description || `${product.name} on M365 Barometer.`,
@@ -145,7 +153,7 @@ export function buildProductPage(product: ProductSummary, mentions: PublicMentio
     supplyDemandSection(product.supplyDemand),
     mentions.length ? mentionSection(mentions) : "",
   ].join("");
-  const mainHtml = `<main>
+  const semantic = `<main>
     <p>Microsoft 365 community barometer</p>
     <h1>${escapeHtml(product.name)}</h1>
     ${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}
@@ -153,6 +161,7 @@ export function buildProductPage(product: ProductSummary, mentions: PublicMentio
     ${sections}
     <p><a href="/products">All products</a></p>
   </main>`;
+  const mainHtml = `<div class="crawl-copy">${semantic}</div>${renderProductAppShell(product, mentions, history)}`;
   return {
     title: `${product.name} | M365 Barometer`,
     description,

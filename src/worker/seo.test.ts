@@ -114,6 +114,13 @@ describe("public HTML", () => {
     const catalog = data["@graph"].find((node) => node.hasPart);
     const teams = catalog?.hasPart?.find((part) => part.name === "Teams Phone");
     const copilot = catalog?.hasPart?.find((part) => part.name === "Microsoft 365 Copilot");
+    expect(html).toContain('id="home-bootstrap"');
+    expect(html).toContain('class="product-section"');
+    const bootstrap = JSON.parse(html.match(/id="home-bootstrap">([\s\S]*?)<\/script>/)?.[1] ?? "{}") as {
+      sections: { heatingUp: Array<{ name: string }>; coolingOff: unknown[] };
+    };
+    expect(bootstrap.sections.heatingUp.map((item) => item.name)).toEqual(["Microsoft 365 Copilot"]);
+    expect(bootstrap.sections.coolingOff).toEqual([]);
     expect(teams?.variableMeasured).toBeUndefined();
     expect(copilot?.variableMeasured).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "barometerScore", value: 72 }),

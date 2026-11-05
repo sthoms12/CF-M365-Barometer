@@ -39,7 +39,7 @@ export type PublicPage = {
 };
 
 export function renderRobotsTxt(): string {
-  const lines = ["User-agent: *", "Allow: /", ""];
+  const lines = ["User-agent: *", "Allow: /", "Content-Signal: ai-train=no, search=yes, ai-input=yes", ""];
   for (const agent of AI_CRAWLERS) {
     lines.push(`User-agent: ${agent}`, "Allow: /", "");
   }

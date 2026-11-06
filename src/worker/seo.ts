@@ -63,7 +63,10 @@ export function semanticHtmlToMarkdown(html: string): string {
     .replaceAll("&gt;", ">")
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'");
-  const lines = markdown.split("\n").map((line) => line.trimEnd());
+  // Inter-tag indentation in the source templates is literal text once the
+  // tags are stripped; the mirrors have no intentional indentation, and a
+  // 4-space indent would render as a code block, so trim every line fully.
+  const lines = markdown.split("\n").map((line) => line.trim());
   return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
 }
 

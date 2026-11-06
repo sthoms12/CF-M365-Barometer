@@ -38,9 +38,20 @@ export async function createBotAnalysisRun(db: D1Database, productSlug?: string)
 
 export async function runScheduledMonitoring(env: Env): Promise<void> {
   // The external bot claims due products. Cron times out stuck runs, enforces retention,
-  // and collects the free weekly supply and demand signals.
-  await reconcileRuns(env.DB);
-  await cleanupRetention(env.DB);
+  // and collects the free weekly supply and demand signals. Each step is isolated:
+  // one step's failure must not silently skip the steps after it.
+  try {
+    await reconcileRuns(env.DB);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Run reconcile failed";
+    console.error(JSON.stringify({ event: "reconcile_failed", message }));
+  }
+  try {
+    await cleanupRetention(env.DB);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Retention cleanup failed";
+    console.error(JSON.stringify({ event: "retention_failed", message }));
+  }
   try {
     await collectWeeklySignals(env);
   } catch (error) {
@@ -50,21 +61,34 @@ export async function runScheduledMonitoring(env: Env): Promise<void> {
 }
 
 export async function reconcileRuns(db: D1Database): Promise<void> {
-  const timedOut = `
-    status IN ('pending', 'dispatched', 'collecting', 'synthesizing')
-    AND requested_at < datetime('now', '-30 minutes')
+  // requested_at is stored as ISO text ('T' separator, 'Z' suffix) while
+  // datetime() returns space-separated text; comparing the raw column would
+  // be lexicographic and 'T' sorts after ' ', so same-day runs would never
+  // time out. Normalize the column through datetime() before comparing.
+  const timedOutFor = (alias: string) => `
+    ${alias}.status IN ('pending', 'dispatched', 'collecting', 'synthesizing')
+    AND datetime(${alias}.requested_at) < datetime('now', '-30 minutes')
   `;
   await db.batch([
     db.prepare(`
       UPDATE products
       SET next_analysis_at = datetime('now', '+1 day'), updated_at = datetime('now')
-      WHERE id IN (SELECT product_id FROM analysis_runs WHERE ${timedOut})
+      WHERE id IN (SELECT product_id FROM analysis_runs WHERE ${timedOutFor("analysis_runs")})
+        AND NOT EXISTS (
+          SELECT 1 FROM analysis_runs newer
+          WHERE newer.product_id = products.id
+            AND newer.status = 'completed'
+            AND datetime(newer.completed_at) > (
+              SELECT MAX(datetime(stale.requested_at)) FROM analysis_runs stale
+              WHERE stale.product_id = products.id AND ${timedOutFor("stale")}
+            )
+        )
     `),
     db.prepare(`
       UPDATE analysis_runs
       SET status = 'failed', completed_at = datetime('now'),
         error_code = 'RUN_TIMEOUT', error_message = 'Run exceeded the 30 minute timeout'
-      WHERE ${timedOut}
+      WHERE ${timedOutFor("analysis_runs")}
     `),
   ]);
 }
@@ -75,7 +99,7 @@ export async function cleanupRetention(db: D1Database): Promise<void> {
       DELETE FROM source_mentions
       WHERE snapshot_id IN (
         SELECT id FROM sentiment_snapshots
-        WHERE analyzed_at < datetime('now', '-12 months')
+        WHERE datetime(analyzed_at) < datetime('now', '-12 months')
           AND id NOT IN (
             SELECT id FROM sentiment_snapshots latest
             WHERE latest.id = (
@@ -88,7 +112,7 @@ export async function cleanupRetention(db: D1Database): Promise<void> {
     `),
     db.prepare(`
       DELETE FROM sentiment_snapshots
-      WHERE analyzed_at < datetime('now', '-12 months')
+      WHERE datetime(analyzed_at) < datetime('now', '-12 months')
         AND id NOT IN (
           SELECT id FROM sentiment_snapshots latest
           WHERE latest.id = (
@@ -101,29 +125,34 @@ export async function cleanupRetention(db: D1Database): Promise<void> {
   ]);
 }
 
+export type MarkRunFailedResult = "failed" | "not_found" | "terminal";
+
 export async function markRunFailed(
   db: D1Database,
   runId: string,
   errorCode: string,
   errorMessage: string,
-): Promise<void> {
+): Promise<MarkRunFailedResult> {
   const run = await db.prepare(
-    "SELECT product_id FROM analysis_runs WHERE id = ?",
-  ).bind(runId).first<{ product_id: string }>();
-  const statements = [
+    "SELECT product_id, status FROM analysis_runs WHERE id = ?",
+  ).bind(runId).first<{ product_id: string; status: string }>();
+  if (!run) return "not_found";
+  // Terminal states are terminal: a late or duplicate fail must not rewrite a
+  // completed run's record or shorten its product's +7-day schedule to +1 day.
+  if (run.status === "completed" || run.status === "failed") return "terminal";
+  await db.batch([
     db.prepare(`
       UPDATE analysis_runs SET status = 'failed', completed_at = ?,
-        error_code = ?, error_message = ? WHERE id = ?
+        error_code = ?, error_message = ?
+      WHERE id = ? AND status NOT IN ('completed', 'failed')
     `).bind(new Date().toISOString(), errorCode.slice(0, 80), errorMessage.slice(0, 1000), runId),
-  ];
-  if (run) {
-    statements.push(db.prepare(`
+    db.prepare(`
       UPDATE products
       SET next_analysis_at = datetime('now', '+1 day'), updated_at = datetime('now')
       WHERE id = ?
-    `).bind(run.product_id));
-  }
-  await db.batch(statements);
+    `).bind(run.product_id),
+  ]);
+  return "failed";
 }
 
 export async function runnerContext(db: D1Database, runId: string) {

@@ -140,7 +140,7 @@ export async function getHistory(db: D1Database, productId: string, days: number
     SELECT analyzed_at AS analyzedAt, barometer_score AS barometerScore,
       momentum, temperature, discussion_volume AS discussionVolume
     FROM sentiment_snapshots
-    WHERE product_id = ? AND analyzed_at >= datetime('now', ?)
+    WHERE product_id = ? AND datetime(analyzed_at) >= datetime('now', ?)
     ORDER BY analyzed_at ASC
   `).bind(productId, `-${days} days`).all();
   return results;

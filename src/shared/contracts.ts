@@ -100,15 +100,33 @@ export type SupplyDemandScore = {
 
 export const externalSignalSources = ["x", "youtube", "tech_community"] as const;
 
+/**
+ * Ceiling for one external weekly count. The external sources are item
+ * counts (posts, videos, threads) for a single product-week; even a viral
+ * week stays orders of magnitude below this, while the cap keeps a bad bot
+ * report from overflowing weekly totals or pinning absurd magnitudes into
+ * stored history. (The one larger-magnitude source, Wikipedia pageviews,
+ * is collected server-side and never flows through this schema.)
+ */
+export const MAX_EXTERNAL_SIGNAL_VALUE = 1_000_000;
+
+/** Hard gate for bot-supplied meta: at most 32 keys and 4 KB serialized. */
+export const MAX_EXTERNAL_META_KEYS = 32;
+export const MAX_EXTERNAL_META_BYTES = 4_096;
+
 export const externalSignalSchema = z.object({
   signals: z.array(z.object({
     productSlug: z.string().trim().min(1).max(80),
     week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     source: z.enum(externalSignalSources),
     kind: z.enum(["supply", "demand"]),
-    value: z.number().finite().nonnegative(),
+    value: z.number().finite().nonnegative().max(MAX_EXTERNAL_SIGNAL_VALUE),
     estimated: z.boolean().optional(),
-    meta: z.record(z.unknown()).optional(),
+    meta: z.record(z.unknown()).refine(
+      (meta) => Object.keys(meta).length <= MAX_EXTERNAL_META_KEYS
+        && JSON.stringify(meta).length <= MAX_EXTERNAL_META_BYTES,
+      { message: "meta must have at most 32 keys and serialize to at most 4 KB" },
+    ).optional(),
   })).min(1).max(200),
 });
 

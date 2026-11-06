@@ -208,6 +208,30 @@ describe("public HTML", () => {
     expect(html).toContain("<title>Microsoft 365 Products | M365 Barometer</title>");
     expect(html).toContain(`href="${CANONICAL_ORIGIN}/products"`);
   });
+
+  it("inserts stored text containing $-patterns literally", () => {
+    const html = applySeoToShell(shell, buildProductPage(product({
+      snapshot: {
+        ...reading.snapshot!,
+        summary: "Prices $$ and $& deals $` today",
+      },
+    }), [{
+      sourceType: "blogs",
+      sourceTitle: "Costs $$ $& $`",
+      sourceUrl: "https://example.com/post",
+      sentiment: "positive",
+      excerpt: "Excerpt $$ $&",
+    }]));
+    // escapeHtml leaves $ alone and turns & into &amp;; the sequences must
+    // survive verbatim instead of being read as replace() patterns.
+    expect(html).toContain("Prices $$ and $&amp; deals $` today");
+    expect(html).toContain("Costs $$ $&amp; $`");
+    // No shell fragment was spliced into the document by a $ pattern.
+    expect(html.match(/<div id="root">/g)).toHaveLength(1);
+    expect(html.match(/<title>/g)).toHaveLength(1);
+    expect(html.match(/glass-portfolio/g)).toHaveLength(1);
+    expect(html).not.toContain("$$</title>");
+  });
 });
 
 describe("markdown mirrors", () => {

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { ingestPayloadSchema } from "../shared/contracts";
 import { buildHomeSections } from "../shared/home";
-import { AiScoringError, ingestAnalysis } from "./analysis";
+import { AiScoringError, RunStateConflictError, ingestAnalysis } from "./analysis";
 import {
   getHistory,
   getMentions,
@@ -117,9 +117,18 @@ app.get("/api/internal/analysis-runs/:id/context", async (context) => {
   return result ? context.json(result) : context.json({ error: "Run not found" }, 404);
 });
 app.post("/api/internal/analysis-runs/:id/start", async (context) => {
+  const runId = context.req.param("id");
+  const run = await context.env.DB.prepare(
+    "SELECT status FROM analysis_runs WHERE id = ?",
+  ).bind(runId).first<{ status: string }>();
+  if (!run) return context.json({ error: "Run not found" }, 404);
+  if (run.status !== "pending" && run.status !== "dispatched") {
+    return context.json({ error: `Run cannot be started from status ${run.status}` }, 409);
+  }
   await context.env.DB.prepare(`
-    UPDATE analysis_runs SET status = 'collecting', started_at = ? WHERE id = ?
-  `).bind(new Date().toISOString(), context.req.param("id")).run();
+    UPDATE analysis_runs SET status = 'collecting', started_at = ?
+    WHERE id = ? AND status IN ('pending', 'dispatched')
+  `).bind(new Date().toISOString(), runId).run();
   return context.json({ ok: true });
 });
 app.post("/api/internal/analysis-runs/:id/ingest", async (context) => {
@@ -128,6 +137,9 @@ app.post("/api/internal/analysis-runs/:id/ingest", async (context) => {
   try {
     return context.json(await ingestAnalysis(context.env, runId, payload));
   } catch (error) {
+    if (error instanceof RunStateConflictError) {
+      return context.json({ error: error.message }, 409);
+    }
     if (!(error instanceof AiScoringError)) throw error;
     const message = (error.message || "AI scoring failed").slice(0, 1000);
     console.error(JSON.stringify({ event: "ai_scoring_failed", runId, message }));
@@ -184,12 +196,14 @@ app.post("/api/internal/signals", async (context) => {
 });
 app.post("/api/internal/analysis-runs/:id/fail", async (context) => {
   const body = await context.req.json<{ errorCode?: string; errorMessage?: string }>();
-  await markRunFailed(
+  const result = await markRunFailed(
     context.env.DB,
     context.req.param("id"),
     body.errorCode ?? "COLLECTOR_FAILED",
     body.errorMessage ?? "Collector failed",
   );
+  if (result === "not_found") return context.json({ error: "Run not found" }, 404);
+  if (result === "terminal") return context.json({ error: "Run is already in a terminal state" }, 409);
   return context.json({ ok: true });
 });
 

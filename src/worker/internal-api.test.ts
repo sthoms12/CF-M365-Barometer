@@ -1,5 +1,6 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { runScheduledMonitoring } from "./automation";
 import worker from "./index";
 
 const TOKEN = "ingest-test-token";
@@ -396,10 +397,13 @@ describe("internal analysis bot API", () => {
       INSERT INTO analysis_runs (id, product_id, request_key, trigger_type, status, requested_at)
       VALUES ('run-old', 'prod-old', 'old-key', 'scheduled', 'collecting', '2020-01-01T00:00:00.000Z')
     `).run();
+    // Seed requested_at in the production format (ISO text from
+    // createAnalysisRun), not SQLite datetime() text: the two formats made
+    // this test blind to the reconcileRuns comparison defect.
     sqlite.prepare(`
       INSERT INTO analysis_runs (id, product_id, request_key, trigger_type, status, requested_at)
-      VALUES ('run-fresh', 'prod-newer', 'fresh-key', 'scheduled', 'pending', datetime('now'))
-    `).run();
+      VALUES ('run-fresh', 'prod-newer', 'fresh-key', 'scheduled', 'pending', ?)
+    `).run(new Date().toISOString());
     sqlite.prepare(`
       INSERT INTO analysis_runs (id, product_id, request_key, trigger_type, status, requested_at, completed_at)
       VALUES ('run-done', 'prod-newer', 'done-key', 'scheduled', 'completed', '2020-01-01T00:00:00.000Z', datetime('now'))
@@ -425,5 +429,140 @@ describe("internal analysis bot API", () => {
     expect(runRow(sqlite, "run-fresh").status).toBe("pending");
     expect(runRow(sqlite, "run-done").status).toBe("completed");
     expect(productRow(sqlite, "prod-newer").nextAnalysisAt).toBe("2999-01-01 00:00:00");
+  });
+
+  it("times out a same-day ISO run and never shortens a newer completed run's schedule", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, { id: "prod-stuck", slug: "stuck-today", name: "Stuck Today" });
+    insertProduct(sqlite, { id: "prod-mixed", slug: "mixed-runs", name: "Mixed Runs", nextAnalysisAt: null });
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    // Stuck run requested in production ISO format earlier the same UTC day.
+    sqlite.prepare(`
+      INSERT INTO analysis_runs (id, product_id, request_key, trigger_type, status, requested_at)
+      VALUES ('run-stuck', 'prod-stuck', 'stuck-key', 'scheduled', 'collecting', ?)
+    `).run(minutesAgo(45));
+    // A stale run plus a newer completed run for the same product; the
+    // completion already set the product's schedule seven days out.
+    sqlite.prepare(`
+      INSERT INTO analysis_runs (id, product_id, request_key, trigger_type, status, requested_at)
+      VALUES ('run-stale', 'prod-mixed', 'stale-key', 'scheduled', 'pending', ?)
+    `).run(minutesAgo(50));
+    sqlite.prepare(`
+      INSERT INTO analysis_runs (id, product_id, request_key, trigger_type, status, requested_at, completed_at)
+      VALUES ('run-newer', 'prod-mixed', 'newer-key', 'scheduled', 'completed', ?, ?)
+    `).run(minutesAgo(40), minutesAgo(35));
+    const sevenDaysOut = sqlite.prepare("SELECT datetime('now', '+7 days') AS value").get() as { value: string };
+    sqlite.prepare("UPDATE products SET next_analysis_at = ? WHERE id = 'prod-mixed'").run(sevenDaysOut.value);
+
+    const env = createEnv(db);
+    await runCron(env);
+
+    expect(runRow(sqlite, "run-stuck")).toMatchObject({ status: "failed", errorCode: "RUN_TIMEOUT" });
+    expect(productRow(sqlite, "prod-stuck").deferredDay).toBe(1);
+    // The stale run still times out, but the completed run's +7-day schedule stands.
+    expect(runRow(sqlite, "run-stale")).toMatchObject({ status: "failed", errorCode: "RUN_TIMEOUT" });
+    expect(productRow(sqlite, "prod-mixed").nextAnalysisAt).toBe(sevenDaysOut.value);
+    expect(productRow(sqlite, "prod-mixed").deferredWeek).toBe(1);
+  });
+
+  it("does not resurrect a failed run on a late ingest", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, { id: "prod-old", slug: "oldest-due", name: "Oldest Due" });
+    const env = createEnv(db, async () => ({ response: aiAnalysis }));
+
+    const created = await api(env, "/api/internal/analysis-runs", {
+      method: "POST",
+      body: JSON.stringify({ productSlug: "oldest-due" }),
+    });
+    const { runId } = await created.json() as { runId: string };
+    const failed = await api(env, `/api/internal/analysis-runs/${runId}/fail`, {
+      method: "POST",
+      body: JSON.stringify({ errorCode: "COLLECTOR_FAILED", errorMessage: "no evidence" }),
+    });
+    expect(failed.status).toBe(200);
+
+    const late = await api(env, `/api/internal/analysis-runs/${runId}/ingest`, {
+      method: "POST",
+      body: JSON.stringify(ingestBody),
+    });
+    expect(late.status).toBe(409);
+    expect(runRow(sqlite, runId)).toMatchObject({
+      status: "failed",
+      errorCode: "COLLECTOR_FAILED",
+      errorMessage: "no evidence",
+    });
+    const snapshots = sqlite.prepare(
+      "SELECT COUNT(*) AS count FROM sentiment_snapshots WHERE analysis_run_id = ?",
+    ).get(runId) as { count: number };
+    expect(snapshots.count).toBe(0);
+    expect(productRow(sqlite, "prod-old").deferredDay).toBe(1);
+    expect(productRow(sqlite, "prod-old").deferredWeek).toBe(0);
+  });
+
+  it("rejects late start and fail calls against a completed run", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, { id: "prod-old", slug: "oldest-due", name: "Oldest Due" });
+    const env = createEnv(db, async () => ({ response: aiAnalysis }));
+
+    const created = await api(env, "/api/internal/analysis-runs", { method: "POST", body: "{}" });
+    const { runId } = await created.json() as { runId: string };
+    expect((await api(env, `/api/internal/analysis-runs/${runId}/start`, { method: "POST", body: "{}" })).status).toBe(200);
+    const ingested = await api(env, `/api/internal/analysis-runs/${runId}/ingest`, {
+      method: "POST",
+      body: JSON.stringify(ingestBody),
+    });
+    expect(ingested.status).toBe(200);
+    expect(runRow(sqlite, runId).status).toBe("completed");
+    expect(productRow(sqlite, "prod-old").deferredWeek).toBe(1);
+
+    const lateFail = await api(env, `/api/internal/analysis-runs/${runId}/fail`, {
+      method: "POST",
+      body: JSON.stringify({ errorCode: "COLLECTOR_FAILED", errorMessage: "late failure" }),
+    });
+    expect(lateFail.status).toBe(409);
+    expect(runRow(sqlite, runId)).toMatchObject({ status: "completed", errorCode: null, errorMessage: null });
+    expect(productRow(sqlite, "prod-old").deferredWeek).toBe(1);
+    expect(productRow(sqlite, "prod-old").deferredDay).toBe(0);
+
+    const lateStart = await api(env, `/api/internal/analysis-runs/${runId}/start`, { method: "POST", body: "{}" });
+    expect(lateStart.status).toBe(409);
+    expect(runRow(sqlite, runId).status).toBe("completed");
+
+    expect((await api(env, "/api/internal/analysis-runs/missing-run/start", { method: "POST", body: "{}" })).status).toBe(404);
+    expect((await api(env, "/api/internal/analysis-runs/missing-run/fail", {
+      method: "POST",
+      body: JSON.stringify({ errorCode: "X", errorMessage: "y" }),
+    })).status).toBe(404);
+  });
+
+  it("attempts every cron step even when an early step fails", async () => {
+    const logged: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    };
+    const brokenDb = {
+      prepare() {
+        throw new Error("d1 unavailable");
+      },
+      async batch() {
+        throw new Error("d1 unavailable");
+      },
+    } as unknown as D1Database;
+    try {
+      await runScheduledMonitoring({ DB: brokenDb } as Env);
+    } finally {
+      console.error = originalError;
+    }
+    const events = logged.map((line) => {
+      try {
+        return (JSON.parse(line) as { event?: string }).event;
+      } catch {
+        return undefined;
+      }
+    });
+    expect(events).toContain("reconcile_failed");
+    expect(events).toContain("retention_failed");
+    expect(events).toContain("signal_collection_failed");
   });
 });

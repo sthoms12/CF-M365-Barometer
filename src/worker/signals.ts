@@ -105,6 +105,13 @@ export async function ingestExternalSignals(db: D1Database, body: unknown, now =
   const parsed = externalSignalSchema.safeParse(body);
   if (!parsed.success) return { error: "Expected signals with productSlug, week, source, kind, and value" };
 
+  // External writes stay inside the window the readers actually use:
+  // readSupplyDemand looks back 26 + 4 weeks, and scoreSupplyDemand only
+  // counts weeks at or before the current week. Anything older is inert
+  // storage and anything later would pre-seed future scoring inputs.
+  const currentWeek = isoWeekStart(now);
+  const earliestWeek = shiftWeek(currentWeek, -(26 + 4));
+
   const writes: SignalWrite[] = [];
   for (const signal of parsed.data.signals) {
     const kindError = externalKindError(signal.source, signal.kind);
@@ -112,11 +119,14 @@ export async function ingestExternalSignals(db: D1Database, body: unknown, now =
     const weekDate = new Date(`${signal.week}T00:00:00.000Z`);
     if (Number.isNaN(weekDate.getTime())) return { error: "week must be a calendar date" };
     const week = isMonday(signal.week) ? signal.week : isoWeekStart(weekDate);
+    if (week < earliestWeek || week > currentWeek) {
+      return { error: `week ${signal.week} is outside the accepted window` };
+    }
     const product = await db.prepare(
       "SELECT id FROM products WHERE slug = ?",
     ).bind(signal.productSlug).first<{ id: string }>();
     if (!product) return { error: `Product not found: ${signal.productSlug}` };
-    const meta = { ...(signal.meta ?? {}) };
+    const meta = boundedExternalMeta(signal.meta);
     if (signal.estimated) meta.estimated = true;
     writes.push({
       productId: product.id,
@@ -265,9 +275,16 @@ async function collectWikipedia(
     }
     try {
       const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/${encodeURIComponent(title)}/daily/${start}/${end}`;
-      const payload = await fetchJson(url, fetcher) as { items?: Array<{ timestamp?: string; views?: number }> };
+      const payload = await fetchJson(url, fetcher) as { items?: unknown } | null;
+      // Fail closed like the sibling collectors: a 200 body without an items
+      // array is a source failure, not authoritative zero pageviews. Treating
+      // it as empty would upsert fabricated zeros over stored history.
+      if (!payload || !Array.isArray(payload.items)) {
+        throw new Error("Wikipedia response did not include an items list");
+      }
+      const items = payload.items as Array<{ timestamp?: string; views?: number }>;
       const totals = sumPageviewsByWeek(
-        (payload.items ?? []).map((item) => ({ timestamp: String(item.timestamp ?? ""), views: Number(item.views ?? 0) })),
+        items.map((item) => ({ timestamp: String(item.timestamp ?? ""), views: Number(item.views ?? 0) })),
         weeks,
       );
       for (const [week, value] of totals) {
@@ -491,6 +508,24 @@ async function fetchJson(url: string, fetcher: SignalFetcher): Promise<unknown> 
 async function signalCache(): Promise<Cache | null> {
   if (typeof caches === "undefined" || typeof caches.open !== "function") return null;
   return caches.open("m365-barometer-signals");
+}
+
+/**
+ * Bot-supplied meta is stored verbatim only within tight bounds. The sole
+ * reader (metaEstimated) consumes just the `estimated` boolean, so keep
+ * small scalar diagnostics (short strings, finite numbers, booleans, null)
+ * up to 16 keys and drop nested structures; the schema already rejected
+ * anything over 32 keys / 4 KB outright.
+ */
+function boundedExternalMeta(meta: Record<string, unknown> | undefined): Record<string, unknown> {
+  const bounded: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta ?? {})) {
+    if (Object.keys(bounded).length >= 16) break;
+    if (typeof value === "string" && value.length <= 100) bounded[key] = value;
+    else if (typeof value === "number" && Number.isFinite(value)) bounded[key] = value;
+    else if (typeof value === "boolean" || value === null) bounded[key] = value;
+  }
+  return bounded;
 }
 
 function externalKindError(source: string, kind: SignalKind): string | null {

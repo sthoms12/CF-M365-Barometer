@@ -2,6 +2,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import worker from "./index";
 import {
+  isoWeekStart,
   itemMatches,
   lastCompletedWeek,
   resolveSignalProfile,
@@ -11,7 +12,7 @@ import {
   weekSequence,
   type CatalogItem,
 } from "./signal-catalog";
-import { collectWeeklySignals, backfillSignalHistory } from "./signals";
+import { collectWeeklySignals, backfillSignalHistory, ingestExternalSignals } from "./signals";
 
 const TOKEN = "ingest-test-token";
 const NOW = new Date("2026-10-14T15:00:00.000Z");
@@ -365,6 +366,33 @@ describe("weekly collectors", () => {
     ]);
     expect(sumPageviewsByWeek([{ timestamp: "2026100500", views: 6 }], weeks).get("2026-10-05")).toBe(6);
   });
+
+  it("fails closed when a Wikipedia 200 body has no items array", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, "microsoft-365-copilot");
+    // A previously collected value for the week being collected.
+    sqlite.prepare(`
+      INSERT INTO signals (id, product_id, week, source, kind, value, meta_json, collected_at)
+      VALUES ('sig-existing', 'prod-microsoft-365-copilot', '2026-10-05', 'wikipedia', 'demand', 1234, '{}', '2026-10-08T00:00:00.000Z')
+    `).run();
+    const fetcher = async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("messages-index")) return Response.json([]);
+      if (url.includes("releasecommunications")) return Response.json([]);
+      if (url.includes("wikimedia.org")) return Response.json({}); // error-shaped 200: no items
+      if (url.includes("hn.algolia.com")) return Response.json({ nbHits: 2, exhaustiveNbHits: true });
+      throw new Error(`unexpected ${url}`);
+    };
+
+    const result = await collectWeeklySignals({ DB: db } as Env, { fetch: fetcher, now: NOW });
+    expect(result.errors).toContainEqual({
+      source: "wikipedia:microsoft-365-copilot",
+      message: "Wikipedia response did not include an items list",
+    });
+    const wikipedia = signalRows(sqlite).filter((row) => row.source === "wikipedia");
+    expect(wikipedia).toHaveLength(1);
+    expect(wikipedia[0]?.value).toBe(1234);
+  });
 });
 
 describe("internal signal endpoints", () => {
@@ -404,5 +432,68 @@ describe("internal signal endpoints", () => {
     const { db } = createDatabase();
     const response = await api(db, "/api/internal/signals/backfill", { sources: ["reddit"] });
     expect(response.status).toBe(400);
+  });
+
+  it("bounds external values and stores only small scalar meta", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, "microsoft-365-copilot");
+    const currentWeek = isoWeekStart(new Date());
+    const base = {
+      productSlug: "microsoft-365-copilot",
+      week: currentWeek,
+      source: "x",
+      kind: "demand",
+    };
+
+    const atCeiling = await api(db, "/api/internal/signals", {
+      signals: [{ ...base, value: 1_000_000 }],
+    });
+    expect(atCeiling.status).toBe(200);
+
+    const overCeiling = await api(db, "/api/internal/signals", {
+      signals: [{ ...base, value: 1_000_001 }],
+    });
+    expect(overCeiling.status).toBe(400);
+
+    const oversizedMeta = await api(db, "/api/internal/signals", {
+      signals: [{ ...base, value: 5, meta: { blob: "x".repeat(5_000) } }],
+    });
+    expect(oversizedMeta.status).toBe(400);
+
+    const withMeta = await api(db, "/api/internal/signals", {
+      signals: [{
+        ...base,
+        value: 7,
+        meta: { estimated: true, note: "sampled", nested: { deep: true }, long: "y".repeat(500) },
+      }],
+    });
+    expect(withMeta.status).toBe(200);
+    const stored = signalRows(sqlite).find((row) => row.value === 7);
+    // The sole meta reader consumes `estimated`; small scalars survive,
+    // nested structures and oversized strings do not reach storage.
+    expect(JSON.parse(stored?.metaJson ?? "{}")).toEqual({ estimated: true, note: "sampled" });
+  });
+
+  it("rejects external weeks outside the reader window", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, "microsoft-365-copilot");
+    const signal = {
+      productSlug: "microsoft-365-copilot",
+      source: "x",
+      kind: "demand",
+      value: 10,
+    };
+    // NOW is 2026-10-14: current week 2026-10-12, window start 2026-03-16.
+    expect(await ingestExternalSignals(db, { signals: [{ ...signal, week: "2026-10-12" }] }, NOW))
+      .toEqual({ stored: 1 });
+    expect(await ingestExternalSignals(db, { signals: [{ ...signal, week: "2026-03-16" }] }, NOW))
+      .toEqual({ stored: 1 });
+    const future = await ingestExternalSignals(db, { signals: [{ ...signal, week: "2026-10-19" }] }, NOW);
+    expect(future).toMatchObject({ error: expect.stringContaining("outside the accepted window") });
+    const ancient = await ingestExternalSignals(db, { signals: [{ ...signal, week: "2026-03-09" }] }, NOW);
+    expect(ancient).toMatchObject({ error: expect.stringContaining("outside the accepted window") });
+    const farPast = await ingestExternalSignals(db, { signals: [{ ...signal, week: "2020-01-06" }] }, NOW);
+    expect(farPast).toMatchObject({ error: expect.stringContaining("outside the accepted window") });
+    expect(signalRows(sqlite)).toHaveLength(2);
   });
 });

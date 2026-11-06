@@ -223,20 +223,24 @@ export function applySeoToShell(shell: string, page: PublicPage): string {
     jsonLdScript(page.jsonLd),
   ].join("");
 
+  // Every insertion uses a replacement function: page data comes from stored
+  // AI/bot text, and a string replacement would interpret $$, $&, $` and $'
+  // sequences in it as replacement patterns, splicing shell fragments into
+  // the document. Function returns are inserted literally.
   if (!/<title>[\s\S]*?<\/title>/i.test(shell)) throw new Error("App shell is missing <title>");
-  let html = shell.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  let html = shell.replace(/<title>[\s\S]*?<\/title>/i, () => `<title>${title}</title>`);
   if (/<meta\s+name=["']description["'][^>]*>/i.test(html)) {
     html = html.replace(
       /<meta\s+name=["']description["'][^>]*>/i,
-      `<meta name="description" content="${description}" />`,
+      () => `<meta name="description" content="${description}" />`,
     );
   } else {
-    html = html.replace("</head>", `<meta name="description" content="${description}" /></head>`);
+    html = html.replace("</head>", () => `<meta name="description" content="${description}" /></head>`);
   }
   if (!html.includes("</head>")) throw new Error("App shell is missing </head>");
-  html = html.replace("</head>", `${head}</head>`);
+  html = html.replace("</head>", () => `${head}</head>`);
   if (!/<div id="root">[\s\S]*?<\/div>/.test(html)) throw new Error("App shell is missing #root");
-  html = html.replace(/<div id="root">[\s\S]*?<\/div>/, `<div id="root">${page.mainHtml}</div>`);
+  html = html.replace(/<div id="root">[\s\S]*?<\/div>/, () => `<div id="root">${page.mainHtml}</div>`);
   return html;
 }
 

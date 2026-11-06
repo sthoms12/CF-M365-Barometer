@@ -79,6 +79,18 @@ export class AiScoringError extends Error {
   }
 }
 
+export class RunStateConflictError extends Error {
+  readonly errorCode = "RUN_STATE_CONFLICT" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "RunStateConflictError";
+  }
+}
+
+/** States from which an ingest may proceed; terminal states are immutable. */
+const INGESTABLE_STATUSES = ["pending", "collecting", "synthesizing"];
+
 async function analyzeWithRetry(env: Env, productName: string, evidence: EvidenceItem[]) {
   try {
     return await runAi(env, productName, evidence);
@@ -109,9 +121,21 @@ export async function ingestAnalysis(
   ).bind(runId).first<{ id: string; barometer_score: number }>();
   if (completed) return { snapshotId: completed.id, score: completed.barometer_score };
 
+  // A failed or timed-out run must stay failed: without this gate a late
+  // ingest would resurrect it, publish a snapshot, and erase its error record.
+  if (!INGESTABLE_STATUSES.includes(run.status)) {
+    throw new RunStateConflictError(`Analysis run is ${run.status} and cannot be ingested`);
+  }
+
   const product = await getProductRow(env.DB, run.product_id);
   if (!product) throw new Error("Product not found");
-  await env.DB.prepare("UPDATE analysis_runs SET status = 'synthesizing' WHERE id = ?").bind(runId).run();
+  const transition = await env.DB.prepare(`
+    UPDATE analysis_runs SET status = 'synthesizing'
+    WHERE id = ? AND status IN ('pending', 'collecting', 'synthesizing')
+  `).bind(runId).run();
+  if (transition.meta?.changes === 0) {
+    throw new RunStateConflictError("Analysis run changed state before ingest could start");
+  }
 
   const ai = await analyzeWithRetry(env, product.name, payload.evidence);
   const sentimentById = new Map(ai.classifications.map((item) => [item.id, item.sentiment]));
@@ -130,14 +154,32 @@ export async function ingestAnalysis(
   const snapshotId = crypto.randomUUID();
   const now = new Date().toISOString();
 
+  // The completing batch is ordered so the run completion lands first and
+  // every following write is guarded on it: if a /fail or cron timeout moved
+  // the run out of 'synthesizing' while AI scoring was in flight, the
+  // completion UPDATE matches nothing and the snapshot, mentions, and product
+  // schedule writes are all suppressed instead of resurrecting the run.
+  const completedByThisBatch = `
+    EXISTS (
+      SELECT 1 FROM analysis_runs
+      WHERE id = ? AND status = 'completed' AND completed_at = ?
+    )
+  `;
   const statements = [
+    env.DB.prepare(`
+      UPDATE analysis_runs SET status = 'completed', completed_at = ?, collector_version = ?,
+        raw_evidence_count = ?, source_status_json = ?, error_code = NULL, error_message = NULL
+      WHERE id = ? AND status = 'synthesizing'
+    `).bind(now, payload.collectorVersion, payload.evidence.length, JSON.stringify(payload.sourceStatus), runId),
     env.DB.prepare(`
       INSERT INTO sentiment_snapshots (
         id, product_id, analysis_run_id, analyzed_at, window_start, window_end,
         barometer_score, temperature, momentum, confidence, discussion_volume,
         summary, positive_signals_json, negative_signals_json, source_breakdown_json,
         source_status_json, classified_evidence_count, ai_model
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE ${completedByThisBatch}
     `).bind(
       snapshotId, product.id, runId, now, payload.windowStart, payload.windowEnd,
       score, calculateTemperature(score, momentum), momentum,
@@ -145,27 +187,36 @@ export async function ingestAnalysis(
       calculateVolume(classified.length), ai.summary, JSON.stringify(ai.positiveSignals),
       JSON.stringify(ai.negativeSignals), JSON.stringify(breakdown),
       JSON.stringify(payload.sourceStatus), classified.length, env.AI_MODEL,
+      runId, now,
     ),
     ...samples.map((item, index) => env.DB.prepare(`
       INSERT INTO source_mentions (
         id, snapshot_id, source_type, source_title, source_url, sentiment,
         excerpt, published_at, source_rank
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM sentiment_snapshots WHERE id = ?)
     `).bind(
       crypto.randomUUID(), snapshotId, sourceCategory(item.source), item.title,
       item.url ?? null, item.sentiment, item.excerpt.slice(0, 500), item.publishedAt ?? null, index + 1,
+      snapshotId,
     )),
     env.DB.prepare(`
-      UPDATE analysis_runs SET status = 'completed', completed_at = ?, collector_version = ?,
-        raw_evidence_count = ?, source_status_json = ?, error_code = NULL, error_message = NULL
-      WHERE id = ?
-    `).bind(now, payload.collectorVersion, payload.evidence.length, JSON.stringify(payload.sourceStatus), runId),
-    env.DB.prepare(`
       UPDATE products SET last_analyzed_at = ?, next_analysis_at = datetime(?, '+7 days'),
-        updated_at = ? WHERE id = ?
-    `).bind(now, now, now, product.id),
+        updated_at = ?
+      WHERE id = ? AND ${completedByThisBatch}
+    `).bind(now, now, now, product.id, runId, now),
   ];
 
   await env.DB.batch(statements);
+
+  // If the guarded completion did not take effect, the batch wrote nothing;
+  // surface the lost race instead of reporting a snapshot that does not exist.
+  const settled = await env.DB.prepare(
+    "SELECT status, completed_at FROM analysis_runs WHERE id = ?",
+  ).bind(runId).first<{ status: string; completed_at: string | null }>();
+  if (!settled || settled.status !== "completed" || settled.completed_at !== now) {
+    throw new RunStateConflictError("Analysis run changed state while ingest was in flight");
+  }
   return { snapshotId, score };
 }

@@ -35,8 +35,37 @@ export type PublicPage = {
   description: string;
   canonicalPath: string;
   mainHtml: string;
+  markdown: string;
   jsonLd: unknown;
 };
+
+/**
+ * Derives a Markdown mirror from the same semantic HTML that renders the
+ * page's crawl copy, so the mirror can never drift from the site's own
+ * stored content. Supports only the tags the semantic builders emit
+ * (main, headings, paragraphs, lists, articles, anchors).
+ */
+export function semanticHtmlToMarkdown(html: string): string {
+  const plain = (value: string): string => value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  let markdown = html.replace(
+    /<a\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,
+    (_match, href: string, text: string) => `[${plain(text)}](${href.startsWith("/") ? canonicalUrl(href) : href})`,
+  );
+  markdown = markdown.replace(/<li>([\s\S]*?)<\/li>/gi, (_match, inner: string) => `\n- ${plain(inner)}\n`);
+  markdown = markdown.replace(/<h1>([\s\S]*?)<\/h1>/gi, (_match, text: string) => `\n# ${plain(text)}\n\n`);
+  markdown = markdown.replace(/<h2>([\s\S]*?)<\/h2>/gi, (_match, text: string) => `\n## ${plain(text)}\n\n`);
+  markdown = markdown.replace(/<h3>([\s\S]*?)<\/h3>/gi, (_match, text: string) => `\n### ${plain(text)}\n\n`);
+  markdown = markdown.replace(/<p>([\s\S]*?)<\/p>/gi, (_match, text: string) => `${plain(text)}\n\n`);
+  markdown = markdown.replace(/<[^>]+>/g, "");
+  markdown = markdown
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'");
+  const lines = markdown.split("\n").map((line) => line.trimEnd());
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
+}
 
 export function renderRobotsTxt(): string {
   const lines = ["User-agent: *", "Allow: /", "Content-Signal: ai-train=no, search=yes, ai-input=yes", ""];
@@ -109,6 +138,7 @@ export function buildHomePage(products: ProductSummary[]): PublicPage {
     description: SITE_DESCRIPTION,
     canonicalPath: "/",
     mainHtml,
+    markdown: semanticHtmlToMarkdown(semantic),
     jsonLd: graph(catalogDataset(products, canonicalUrl("/"))),
   };
 }
@@ -126,6 +156,7 @@ export function buildProductsPage(products: ProductSummary[]): PublicPage {
     description: "Every active product receives an automated Last30Days reading once per week.",
     canonicalPath: "/products",
     mainHtml,
+    markdown: semanticHtmlToMarkdown(semantic),
     jsonLd: graph(catalogDataset(products, canonicalUrl("/products"))),
   };
 }
@@ -167,6 +198,7 @@ export function buildProductPage(
     description,
     canonicalPath: path,
     mainHtml,
+    markdown: semanticHtmlToMarkdown(semantic),
     jsonLd: graph(productDataset(product, canonicalUrl(path))),
   };
 }

@@ -222,6 +222,7 @@ describe("markdown mirrors", () => {
     expect(page.markdown).toContain("No automated reading is stored for this product yet.");
     expect(page.markdown).toContain("[All products](https://www.m365-barometer.com/products)");
     expect(page.markdown).not.toContain("<");
+    expect(page.markdown).not.toMatch(/^ +\S/m);
   });
 
   it("derives the product mirror with reading, signals, sources, and mentions", () => {

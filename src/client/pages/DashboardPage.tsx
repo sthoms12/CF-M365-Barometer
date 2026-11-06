@@ -11,7 +11,10 @@ export function DashboardPage() {
   const [data, setData] = useState<HomeResponse | null>(readHomeBootstrap);
   const [error, setError] = useState("");
   useEffect(() => {
-    api<HomeResponse>("/api/home").then(setData).catch((err: Error) => setError(err.message));
+    api<HomeResponse>("/api/home").then((response) => {
+      setData(response);
+      try { (window as unknown as { glass?: { capture: (event: string) => void } }).glass?.capture("status_checked"); } catch { /* analytics is best-effort */ }
+    }).catch((err: Error) => setError(err.message));
   }, []);
 
   return (

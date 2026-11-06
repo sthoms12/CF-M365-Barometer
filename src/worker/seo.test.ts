@@ -210,6 +210,52 @@ describe("public HTML", () => {
   });
 });
 
+describe("markdown mirrors", () => {
+  it("derives the home mirror from the same stored product copy as the HTML", () => {
+    const page = buildHomePage([reading, product({ slug: "teams-phone", name: "Teams Phone", snapshot: null })]);
+    expect(page.markdown).toContain("# Microsoft 365 sentiment, measured in public.");
+    expect(page.markdown).toContain("Automated weekly readings from recent community discussions, scored consistently over time.");
+    expect(page.markdown).toContain("## Tracked products");
+    expect(page.markdown).toContain("[Microsoft 365 Copilot](https://www.m365-barometer.com/products/microsoft-365-copilot)");
+    expect(page.markdown).toContain("Barometer score: 72/100");
+    expect(page.markdown).toContain("Community sentiment is cautiously positive.");
+    expect(page.markdown).toContain("No automated reading is stored for this product yet.");
+    expect(page.markdown).toContain("[All products](https://www.m365-barometer.com/products)");
+    expect(page.markdown).not.toContain("<");
+  });
+
+  it("derives the product mirror with reading, signals, sources, and mentions", () => {
+    const page = buildProductPage(reading, [{
+      sourceType: "reddit",
+      sourceTitle: "Copilot thread",
+      sourceUrl: "https://example.com/thread",
+      sentiment: "positive",
+      excerpt: "Helpful for drafts.",
+    }]);
+    expect(page.markdown).toContain("# Microsoft 365 Copilot");
+    expect(page.markdown).toContain("Copilot across Office apps.");
+    expect(page.markdown).toContain("## Current reading");
+    expect(page.markdown).toContain("## Positive signals");
+    expect(page.markdown).toContain("- Useful drafts");
+    expect(page.markdown).toContain("## Negative signals");
+    expect(page.markdown).toContain("- Hallucinations");
+    expect(page.markdown).toContain("## Source breakdown");
+    expect(page.markdown).toContain("- reddit: 4");
+    expect(page.markdown).toContain("## Sample public mentions");
+    expect(page.markdown).toContain("### Copilot thread");
+    expect(page.markdown).toContain("Helpful for drafts.");
+    expect(page.markdown).toContain("[Source](https://example.com/thread)");
+    expect(page.markdown).not.toContain("<");
+  });
+
+  it("derives the products index mirror", () => {
+    const page = buildProductsPage([product()]);
+    expect(page.markdown).toContain("# Microsoft 365 Products");
+    expect(page.markdown).toContain("Every active product receives an automated Last30Days reading once per week.");
+    expect(page.markdown).not.toContain("<");
+  });
+});
+
 describe("not found HTML", () => {
   it("is a real not-found document with the disclaimer", () => {
     const html = renderNotFoundHtml();

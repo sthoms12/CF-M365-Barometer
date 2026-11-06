@@ -24,6 +24,7 @@ import {
   buildHomePage,
   buildProductPage,
   buildProductsPage,
+  canonicalUrl,
   isStaticAssetPath,
   renderNotFoundHtml,
   renderRobotsTxt,
@@ -212,9 +213,22 @@ app.get("/sitemap.xml", async (context) => {
 });
 
 app.get("/index.html", (context) => context.redirect("/", 301));
-app.get("/", (context) => renderHtmlPage(context, { kind: "home" }));
-app.get("/products", (context) => renderHtmlPage(context, { kind: "products" }));
-app.get("/products/:slug", (context) => renderHtmlPage(context, { kind: "product", slug: context.req.param("slug") }));
+app.get("/", (context) => renderHtmlPage(context, { kind: "home" }, wantsMarkdown(context)));
+app.get("/index.md", (context) => renderHtmlPage(context, { kind: "home" }, true));
+app.get("/products", (context) => renderHtmlPage(context, { kind: "products" }, wantsMarkdown(context)));
+app.get("/products.md", (context) => renderHtmlPage(context, { kind: "products" }, true));
+app.get("/products/:slug", (context) => {
+  const slug = context.req.param("slug");
+  // A ".md" suffix on a product URL is an explicit Markdown mirror request.
+  if (slug.endsWith(".md")) {
+    return renderHtmlPage(context, { kind: "product", slug: slug.slice(0, -".md".length) }, true);
+  }
+  return renderHtmlPage(context, { kind: "product", slug }, wantsMarkdown(context));
+});
+
+function wantsMarkdown(context: { req: { header: (name: string) => string | undefined } }): boolean {
+  return (context.req.header("accept") ?? "").toLowerCase().includes("text/markdown");
+}
 
 app.notFound((context) => {
   if (isApiPath(context.req.path)) return context.json({ error: "Not found" }, 404);
@@ -232,6 +246,7 @@ app.notFound((context) => {
 async function renderHtmlPage(
   context: { req: { url: string }; env: Env },
   target: { kind: "home" } | { kind: "products" } | { kind: "product"; slug: string },
+  markdown = false,
 ): Promise<Response> {
   const products = await getProducts(context.env.DB);
   let page: PublicPage;
@@ -260,9 +275,29 @@ async function renderHtmlPage(
     page = buildProductPage({ ...product, supplyDemand }, mentions, history);
   }
 
+  const canonical = canonicalUrl(page.canonicalPath);
+  if (markdown) {
+    return new Response(page.markdown, {
+      status: 200,
+      headers: {
+        "content-type": "text/markdown; charset=utf-8",
+        "cache-control": "public, max-age=300",
+        vary: "Accept",
+        link: `<${canonical}>; rel="canonical", <${canonical}>; rel="alternate"; type="text/markdown"`,
+      },
+    });
+  }
+
   const shell = await context.env.ASSETS.fetch(new Request(new URL("/index.html", context.req.url)));
   if (!shell.ok) return new Response("App shell unavailable", { status: 502 });
-  return new Response(applySeoToShell(await shell.text(), page), { status: 200, headers: HTML_HEADERS });
+  return new Response(applySeoToShell(await shell.text(), page), {
+    status: 200,
+    headers: {
+      ...HTML_HEADERS,
+      vary: "Accept",
+      link: `<${canonical}>; rel="alternate"; type="text/markdown"`,
+    },
+  });
 }
 
 function asMentions(rows: readonly Record<string, unknown>[]): PublicMention[] {

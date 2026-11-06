@@ -167,6 +167,57 @@ describe("public crawl routes", () => {
     expect(index.headers.get("location")).toBe("/");
   });
 
+  it("advertises the Markdown mirror on HTML responses", async () => {
+    const { bindings } = env();
+    const response = await app.request("http://localhost/", {}, bindings);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("link")).toBe('<https://www.m365-barometer.com/>; rel="alternate"; type="text/markdown"');
+    expect(response.headers.get("vary")).toContain("Accept");
+  });
+
+  it("serves the home Markdown mirror on Accept: text/markdown and at /index.md", async () => {
+    const { bindings, fetched } = env();
+    const negotiated = await app.request("http://localhost/", { headers: { Accept: "text/markdown" } }, bindings);
+    expect(negotiated.status).toBe(200);
+    expect(negotiated.headers.get("content-type")).toContain("text/markdown");
+    expect(negotiated.headers.get("vary")).toContain("Accept");
+    expect(negotiated.headers.get("link")).toContain('rel="alternate"; type="text/markdown"');
+    const body = await negotiated.text();
+    expect(body).toContain("# Microsoft 365 sentiment, measured in public.");
+    expect(body).toContain("Barometer score: 72/100");
+    expect(body).not.toContain("<html");
+
+    const direct = await app.request("http://localhost/index.md", {}, bindings);
+    expect(direct.status).toBe(200);
+    expect(direct.headers.get("content-type")).toContain("text/markdown");
+    expect(await direct.text()).toBe(body);
+    // Markdown is rendered from D1 data, never from the app shell asset.
+    expect(fetched).toEqual([]);
+  });
+
+  it("serves product Markdown mirrors and 404s unknown .md slugs", async () => {
+    const { bindings } = env();
+    const negotiated = await app.request("http://localhost/products/microsoft-365-copilot", { headers: { Accept: "text/markdown" } }, bindings);
+    expect(negotiated.status).toBe(200);
+    expect(negotiated.headers.get("content-type")).toContain("text/markdown");
+    const body = await negotiated.text();
+    expect(body).toContain("# Microsoft 365 Copilot");
+    expect(body).toContain("Community sentiment is cautiously positive.");
+    expect(body).toContain("Helpful for drafts.");
+
+    const direct = await app.request("http://localhost/products/microsoft-365-copilot.md", {}, bindings);
+    expect(direct.status).toBe(200);
+    expect(await direct.text()).toBe(body);
+
+    const index = await app.request("http://localhost/products.md", {}, bindings);
+    expect(index.status).toBe(200);
+    expect(await index.text()).toContain("# Microsoft 365 Products");
+
+    const missing = await app.request("http://localhost/products/not-a-product.md", {}, bindings);
+    expect(missing.status).toBe(404);
+  });
+
   it("does not rate limit bearer-protected internal routes", async () => {
     let calls = 0;
     const { bindings } = env();

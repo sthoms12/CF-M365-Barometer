@@ -253,6 +253,7 @@ export function renderNotFoundHtml(): string {
   <title>Page not found | M365 Barometer</title>
   <meta name="description" content="That page is not on M365 Barometer." />
   <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
 </head>
 <body>
   <main>

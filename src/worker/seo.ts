@@ -1,6 +1,34 @@
 import type { ProductSummary, SnapshotSummary, SupplyDemandScore } from "../shared/contracts";
-import { renderHomeAppShell } from "./home-shell";
+import { MIN_CLASSIFIED_EVIDENCE } from "./analysis";
+import { renderHomeAppShell, renderSiteHeader } from "./home-shell";
+import {
+  CONFIDENCE_FAILURES_BEFORE_DROP,
+  CONFIDENCE_HIGH_CATEGORIES,
+  CONFIDENCE_HIGH_ITEMS,
+  CONFIDENCE_MEDIUM_CATEGORIES,
+  CONFIDENCE_MEDIUM_ITEMS,
+  CONFIDENCE_VERY_HIGH_CATEGORIES,
+  CONFIDENCE_VERY_HIGH_ITEMS,
+  SENTIMENT_SCORE_MIDPOINT,
+  TEMPERATURE_COLD_AT,
+  TEMPERATURE_COOLING_AT,
+  TEMPERATURE_HOT_AT,
+  TEMPERATURE_WARMING_AT,
+  VOLUME_HIGH_AT,
+  VOLUME_MEDIUM_AT,
+  VOLUME_VERY_HIGH_AT,
+} from "./metrics";
 import { renderProductAppShell, renderProductsAppShell, type ShellHistoryPoint } from "./page-shell";
+import {
+  DEMAND_MOMENTUM_WEEKS,
+  HIGH_CONFIDENCE_SOURCES,
+  HISTORY_WEEKS,
+  LABEL_COLD_AT,
+  LABEL_HOT_AT,
+  MIN_SOURCE_WEEKS,
+  MIN_SOURCES_FOR_LABEL,
+  MIN_WEEKS_FOR_FULL_INDEX,
+} from "./signal-catalog";
 
 export const CANONICAL_ORIGIN = "https://www.m365-barometer.com";
 export const INDEPENDENT_DISCLAIMER = "Independent project, not affiliated with Microsoft.";
@@ -15,7 +43,7 @@ const AI_CRAWLERS = [
 ] as const;
 
 const SITE_DESCRIPTION = "Public sentiment trends for Microsoft 365 products.";
-const DATASET_LICENSE = "https://creativecommons.org/licenses/by/4.0/";
+export const DATASET_LICENSE = "https://creativecommons.org/licenses/by/4.0/";
 
 export type SitemapEntry = {
   path: string;
@@ -101,6 +129,8 @@ export function sitemapEntries(products: Array<{ slug: string; lastModified: str
   return [
     { path: "/", lastModified: latest },
     { path: "/products", lastModified: latest },
+    { path: "/methodology", lastModified: null },
+    { path: "/about", lastModified: null },
     ...pages.map((product) => ({
       path: `/products/${encodeURIComponent(product.slug)}`,
       lastModified: product.lastModified,
@@ -162,6 +192,184 @@ export function buildProductsPage(products: ProductSummary[]): PublicPage {
     markdown: semanticHtmlToMarkdown(semantic),
     jsonLd: graph(catalogDataset(products, canonicalUrl("/products"))),
   };
+}
+
+const MESSAGE_CENTER_URL = "https://mc.merill.net/messages-index.json";
+const ROADMAP_URL = "https://www.microsoft.com/releasecommunications/api/v1/m365";
+const WIKIMEDIA_API_URL = "https://wikimedia.org/api/rest_v1/";
+const HACKER_NEWS_SEARCH_URL = "https://hn.algolia.com/api/v1/search";
+
+type DocSection = {
+  heading: string;
+  paragraphs: string[];
+  items?: string[];
+  after?: string[];
+};
+
+export function buildMethodologyPage(): PublicPage {
+  const midpoint = SENTIMENT_SCORE_MIDPOINT;
+  return buildDocPage({
+    heading: "Methodology",
+    title: "Methodology | M365 Barometer",
+    description: "How M365 Barometer computes its 0-100 sentiment score, temperature, confidence, and supply and demand estimates.",
+    canonicalPath: "/methodology",
+    eyebrow: "How the readings work",
+    ledeHtml: "M365 Barometer publishes two readings for each active product. The barometer score is a 0–100 sentiment score. Supply and demand figures are estimates.",
+    sections: [
+      {
+        heading: "Sources",
+        paragraphs: [
+          "Weekly supply and demand counts use the last completed ISO week. The Worker collects Message Center, the Microsoft 365 Roadmap, Wikipedia pageviews, and Hacker News. X, YouTube, and Tech Community counts are submitted as weekly figures.",
+        ],
+        items: [
+          `Message Center, via ${link(MESSAGE_CENTER_URL, "mc.merill.net")}. Matching messages in the week are a supply count.`,
+          `${link(ROADMAP_URL, "Microsoft 365 Roadmap feed")}. Matching roadmap items in the week are a supply count.`,
+          `Wikipedia pageviews from the ${link(WIKIMEDIA_API_URL, "Wikimedia pageviews API")}, summed for the product's English Wikipedia article. This is a demand count. Products with no dedicated article are skipped. When the article is broader than the product, the count is stored as an estimate.`,
+          `Hacker News stories from the ${link(HACKER_NEWS_SEARCH_URL, "Hacker News search API")}. This is a demand count. When the search reports that the hit count is not exhaustive, the count is stored as an estimate.`,
+          "X post counts. These are a demand signal, submitted as a weekly count. This Worker does not fetch X itself.",
+          "YouTube and web evidence from the weekly sentiment searches. A YouTube count submitted on its own is a supply signal.",
+          "Tech Community counts can be submitted as supply or demand.",
+          "Reddit only as evidence from public search results in the weekly sentiment reading. Reddit is not a supply or demand count.",
+        ],
+        after: [
+          "A Message Center or roadmap item matches a product when its service is one of that product's configured services, or when its title contains one of that product's phrases.",
+          "The sentiment reading is built from evidence submitted after a weekly search. That search plan includes Reddit, YouTube, Hacker News, GitHub, and the web. Searches aimed at positive signals use Reddit, YouTube, and the web. YouTube and web evidence in the reading comes from those searches. The search plan carries source weights for collection. Those weights are not applied to the score.",
+        ],
+      },
+      {
+        heading: "Barometer score",
+        paragraphs: [
+          `Classified evidence is positive, neutral, or negative. The score is ${midpoint} when nothing was classified. Otherwise it starts at ${midpoint}, adds ${midpoint} times the share of items that are positive, and subtracts ${midpoint} times the share of items that are negative. The result is rounded to the nearest integer and kept inside 0–100. Neutral items stay in the share and do not push the score. Every classified item counts equally.`,
+          `A reading is stored only when at least ${MIN_CLASSIFIED_EVIDENCE} evidence items were classified.`,
+          "Momentum is this score minus the product's previous stored score. With no previous score, momentum is 0.",
+        ],
+      },
+      {
+        heading: "Temperature",
+        paragraphs: [
+          "The temperature names are Hot, Warming, Stable, Cooling, and Cold. The score is applied before momentum.",
+          `Hot when the score is ${TEMPERATURE_HOT_AT} or higher, including when momentum is negative. Cold when the score is ${TEMPERATURE_COLD_AT} or lower, including when momentum is positive. Otherwise Warming when momentum is ${TEMPERATURE_WARMING_AT} or higher. Otherwise Cooling when momentum is ${TEMPERATURE_COOLING_AT} or lower. Otherwise Stable.`,
+        ],
+      },
+      {
+        heading: "Confidence",
+        paragraphs: [
+          "The sentiment confidence names are Very High, High, Medium, and Low. They use the number of classified items and the number of source categories with at least one item.",
+          `Very High: at least ${CONFIDENCE_VERY_HIGH_ITEMS} classified items and at least ${CONFIDENCE_VERY_HIGH_CATEGORIES} categories. High: at least ${CONFIDENCE_HIGH_ITEMS} classified items and at least ${CONFIDENCE_HIGH_CATEGORIES} categories. Medium: at least ${CONFIDENCE_MEDIUM_ITEMS} classified items and at least ${CONFIDENCE_MEDIUM_CATEGORIES} categories. Low: below that.`,
+          `When ${CONFIDENCE_FAILURES_BEFORE_DROP} or more configured sources have status failed, confidence drops one step. Low stays Low.`,
+          "The source categories are reddit, x, blogs, forums, youtube, and other. Web evidence is counted as blogs. Hacker News evidence is counted as forums.",
+        ],
+      },
+      {
+        heading: "Discussion volume",
+        paragraphs: [
+          `Discussion volume names the classified item count. The names are Very High, High, Medium, and Low. Very High at ${VOLUME_VERY_HIGH_AT} or more, High at ${VOLUME_HIGH_AT} or more, Medium at ${VOLUME_MEDIUM_AT} or more, and Low below that.`,
+        ],
+      },
+      {
+        heading: "Supply and demand",
+        paragraphs: [
+          "Supply and demand figures are estimates. They are not Microsoft usage, license, or revenue numbers.",
+          `Each usable source adds its weekly value into a supply total or a demand total. The index compares the scored week's total with that product's own weekly totals over the trailing ${HISTORY_WEEKS} weeks, including the scored week (HISTORY_WEEKS). The scored week is the latest completed ISO week that has usable counts. If the only usable counts fall in the current, unfinished week, that week is used and the index is marked as an estimate.`,
+          "The index is a percentile of the scored week's total in that history. Weeks below the current total count in full, weeks equal to it count half, and the index is that share of the weeks multiplied by 100 and rounded to the nearest integer.",
+          "The gap is the demand index minus the supply index when both exist.",
+          `Demand momentum is the scored week's demand index minus the average of the demand percentiles from up to the previous ${DEMAND_MOMENTUM_WEEKS} weeks. It is left empty when this week has no demand index or there is no earlier week.`,
+        ],
+      },
+      {
+        heading: "When a new source counts",
+        paragraphs: [
+          `A new source counts only after ${MIN_SOURCE_WEEKS} weeks of history for that product (MIN_SOURCE_WEEKS). A week counts when the stored value is a number. Until then the source is pending. Pending sources are left out of the supply index, the demand index, momentum, the gap, and the source count used for confidence.`,
+        ],
+      },
+      {
+        heading: "Supply and demand labels",
+        paragraphs: [
+          "The supply and demand label names are Hot, Neutral, and Cold.",
+          `A label is assigned only when a demand index exists, demand momentum exists, the scored week has at least ${MIN_SOURCES_FOR_LABEL} usable sources (MIN_SOURCES_FOR_LABEL), and that demand index is built from at least ${MIN_WEEKS_FOR_FULL_INDEX} weeks (MIN_WEEKS_FOR_FULL_INDEX).`,
+          `Hot when the demand index is ${LABEL_HOT_AT} or higher and momentum is above 0. Cold when the demand index is ${LABEL_COLD_AT} or lower and momentum is below 0. Neutral otherwise. When those conditions are not met, there is no label.`,
+        ],
+      },
+      {
+        heading: "Supply and demand confidence",
+        paragraphs: [
+          "The supply and demand confidence names are High, Medium, Low, and not enough data. They follow the number of distinct usable sources in the scored week.",
+          `not enough data when that number is 0. Low when it is at least 1 and below ${MIN_SOURCES_FOR_LABEL}. Medium when it is at least ${MIN_SOURCES_FOR_LABEL} and below ${HIGH_CONFIDENCE_SOURCES}. High when it is ${HIGH_CONFIDENCE_SOURCES} or more.`,
+        ],
+      },
+      {
+        heading: "Estimates",
+        paragraphs: [
+          "Supply and demand figures are estimates.",
+          `An index is marked as an estimate when the scored week is still in progress, when fewer than ${MIN_WEEKS_FOR_FULL_INDEX} weeks of that product's history are stored (MIN_WEEKS_FOR_FULL_INDEX), or when a count in the scored week was stored as an estimate. Wikipedia counts are estimates when the article is broader than the product. Hacker News counts are estimates when the hit count is not exhaustive. Submitted counts are estimates when they are flagged as estimated.`,
+          "The gap and the label are marked as estimates when they are shown and an index they use is an estimate.",
+        ],
+      },
+    ],
+  });
+}
+
+export function buildAboutPage(): PublicPage {
+  return buildDocPage({
+    heading: "About",
+    title: "About | M365 Barometer",
+    description: "An independent community radar of which Microsoft 365 products are gaining or losing traction. Not affiliated with Microsoft.",
+    canonicalPath: "/about",
+    eyebrow: "The project",
+    ledeHtml: "M365 Barometer is an independent community radar of which Microsoft 365 products are gaining or losing traction.",
+    sections: [
+      {
+        heading: "Independence",
+        paragraphs: [
+          "It is not affiliated with Microsoft. The site is published by M365 Barometer, an independent organization.",
+          `How the readings are computed is described on the ${link("/methodology", "methodology")} page.`,
+        ],
+      },
+      {
+        heading: "Data",
+        paragraphs: [
+          `Public data on this site is licensed under ${link(DATASET_LICENSE, "CC BY 4.0")}.`,
+        ],
+      },
+    ],
+  });
+}
+
+function buildDocPage(options: {
+  heading: string;
+  title: string;
+  description: string;
+  canonicalPath: string;
+  eyebrow: string;
+  ledeHtml: string;
+  sections: DocSection[];
+}): PublicPage {
+  const sections = options.sections.map((section) => {
+    const paragraphs = section.paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join("");
+    const items = section.items?.length
+      ? `<ul>${section.items.map((item) => `<li>${item}</li>`).join("")}</ul>`
+      : "";
+    const after = (section.after ?? []).map((paragraph) => `<p>${paragraph}</p>`).join("");
+    return `<h2>${escapeHtml(section.heading)}</h2>${paragraphs}${items}${after}`;
+  }).join("");
+  const semantic = `<main>
+    <h1>${escapeHtml(options.heading)}</h1>
+    <p>${options.ledeHtml}</p>
+    ${sections}
+  </main>`;
+  const visual = `<div class="app-shell">${renderSiteHeader("none")}<main class="page-shell"><div class="page-title"><p class="eyebrow">${escapeHtml(options.eyebrow)}</p><h1>${escapeHtml(options.heading)}</h1><p>${options.ledeHtml}</p></div><div class="prose">${sections}</div></main></div>`;
+  return {
+    title: options.title,
+    description: options.description,
+    canonicalPath: options.canonicalPath,
+    mainHtml: `<div class="crawl-copy">${semantic}</div>${visual}`,
+    markdown: semanticHtmlToMarkdown(semantic),
+    jsonLd: documentGraph(options.title, options.description, canonicalUrl(options.canonicalPath)),
+  };
+}
+
+function link(href: string, text: string): string {
+  return `<a href="${escapeHtml(href)}">${escapeHtml(text)}</a>`;
 }
 
 export function buildProductPage(
@@ -261,7 +469,10 @@ export function renderNotFoundHtml(): string {
     <p>That path is not on M365 Barometer.</p>
     <p><a href="/">Back to the dashboard</a></p>
   </main>
-  <footer>${INDEPENDENT_DISCLAIMER}</footer>
+  <footer>
+    <p>${INDEPENDENT_DISCLAIMER}</p>
+    <p>Data licensed under <a href="${DATASET_LICENSE}" rel="license">CC BY 4.0</a>.</p>
+  </footer>
 </body>
 </html>
 `;
@@ -392,6 +603,31 @@ function productDataset(product: ProductSummary, url: string) {
   measured.push(...supplyDemandProperties(product.supplyDemand));
   if (measured.length) dataset.variableMeasured = measured;
   return dataset;
+}
+
+function documentGraph(name: string, description: string, url: string) {
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": `${CANONICAL_ORIGIN}/#website`,
+        name: "M365 Barometer",
+        url: `${CANONICAL_ORIGIN}/`,
+        description: SITE_DESCRIPTION,
+        publisher: publisher(),
+      },
+      {
+        "@type": "WebPage",
+        name,
+        description,
+        url,
+        license: DATASET_LICENSE,
+        isPartOf: { "@id": `${CANONICAL_ORIGIN}/#website` },
+        publisher: publisher(),
+      },
+    ],
+  };
 }
 
 function graph(dataset: unknown) {

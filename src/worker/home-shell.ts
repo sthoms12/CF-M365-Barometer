@@ -29,7 +29,7 @@ export function momentumHtml(value: number): string {
   return `<span class="momentum ${up ? "momentum-up" : "momentum-down"}">${glyph}${up ? "+" : ""}${value}</span>`;
 }
 
-export function renderSiteHeader(active: "home" | "products"): string {
+export function renderSiteHeader(active: "home" | "products" | "none"): string {
   const brandClass = active === "home" ? "brand active" : "brand";
   const dashboard = active === "home" ? ` class="active" aria-current="page"` : "";
   const products = active === "products" ? ` class="active" aria-current="page"` : "";

@@ -21,7 +21,9 @@ import { bearerAuth } from "./security";
 import { backfillSignalHistory, ingestExternalSignals, readSupplyDemand } from "./signals";
 import {
   applySeoToShell,
+  buildAboutPage,
   buildHomePage,
+  buildMethodologyPage,
   buildProductPage,
   buildProductsPage,
   canonicalUrl,
@@ -239,6 +241,10 @@ app.get("/products/:slug", (context) => {
   }
   return renderHtmlPage(context, { kind: "product", slug }, wantsMarkdown(context));
 });
+app.get("/methodology", (context) => renderPreparedPage(context, buildMethodologyPage(), wantsMarkdown(context)));
+app.get("/methodology.md", (context) => renderPreparedPage(context, buildMethodologyPage(), true));
+app.get("/about", (context) => renderPreparedPage(context, buildAboutPage(), wantsMarkdown(context)));
+app.get("/about.md", (context) => renderPreparedPage(context, buildAboutPage(), true));
 
 function wantsMarkdown(context: { req: { header: (name: string) => string | undefined } }): boolean {
   return (context.req.header("accept") ?? "").toLowerCase().includes("text/markdown");
@@ -289,6 +295,14 @@ async function renderHtmlPage(
     page = buildProductPage({ ...product, supplyDemand }, mentions, history);
   }
 
+  return renderPreparedPage(context, page, markdown);
+}
+
+async function renderPreparedPage(
+  context: { req: { url: string }; env: Env },
+  page: PublicPage,
+  markdown: boolean,
+): Promise<Response> {
   const canonical = canonicalUrl(page.canonicalPath);
   if (markdown) {
     return new Response(page.markdown, {

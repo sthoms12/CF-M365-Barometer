@@ -15,6 +15,8 @@ type AiTextResponse = { response?: unknown };
 // Workers AI defaults max_tokens to 256, which truncates JSON once classifications pass about 12 items.
 // 4096 covers 60 compact {id, sentiment} labels plus the summary and signals, inside the 24,000-token context window.
 export const AI_ANALYSIS_MAX_TOKENS = 4096;
+/** A reading is stored only when at least this many evidence items were classified. */
+export const MIN_CLASSIFIED_EVIDENCE = 3;
 
 export function parseAiAnalysisResponse(response: unknown): AiAnalysis {
   if (!response) throw new Error("Workers AI returned no response");
@@ -142,7 +144,7 @@ export async function ingestAnalysis(
   const classified = payload.evidence
     .filter((item) => sentimentById.has(item.id))
     .map((item) => ({ ...item, sentiment: sentimentById.get(item.id) as Sentiment }));
-  if (classified.length < 3) throw new Error("INSUFFICIENT_EVIDENCE");
+  if (classified.length < MIN_CLASSIFIED_EVIDENCE) throw new Error("INSUFFICIENT_EVIDENCE");
 
   const score = calculateScore(classified.map((item) => item.sentiment));
   const previousScore = await getPreviousScore(env.DB, product.id);

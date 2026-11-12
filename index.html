@@ -14,7 +14,15 @@
   <body>
     <noscript><style>.crawl-copy{display:block !important}.app-shell{display:none !important}</style></noscript>
     <div id="root"></div>
-    <footer class="site-footer"><p>Independent project, not affiliated with Microsoft.</p><p>Analytics: This site uses Dataflare, an analytics tool we self-host in our own Cloudflare account; it is cookieless and sets no cookies. It records pageviews, the referring site, and basic device and browser information, kept for 90 days and never sold or shared.</p></footer>
+    <footer class="site-footer">
+      <p>Independent project, not affiliated with Microsoft.</p>
+      <nav aria-label="Footer">
+        <a href="/methodology">Methodology</a>
+        <a href="/about">About</a>
+      </nav>
+      <p>Data licensed under <a href="https://creativecommons.org/licenses/by/4.0/" rel="license">CC BY 4.0</a>.</p>
+      <p class="footer-note">Analytics: This site uses Dataflare, an analytics tool we self-host in our own Cloudflare account; it is cookieless and sets no cookies. It records pageviews, the referring site, and basic device and browser information, kept for 90 days and never sold or shared.</p>
+    </footer>
     <script type="module" src="/src/client/main.tsx"></script>
   </body>
 </html>

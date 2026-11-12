@@ -1,11 +1,42 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { ProductSummary } from "../shared/contracts";
+import { MIN_CLASSIFIED_EVIDENCE } from "./analysis";
+import {
+  CONFIDENCE_FAILURES_BEFORE_DROP,
+  CONFIDENCE_HIGH_CATEGORIES,
+  CONFIDENCE_HIGH_ITEMS,
+  CONFIDENCE_MEDIUM_CATEGORIES,
+  CONFIDENCE_MEDIUM_ITEMS,
+  CONFIDENCE_VERY_HIGH_CATEGORIES,
+  CONFIDENCE_VERY_HIGH_ITEMS,
+  SENTIMENT_SCORE_MIDPOINT,
+  TEMPERATURE_COLD_AT,
+  TEMPERATURE_COOLING_AT,
+  TEMPERATURE_HOT_AT,
+  TEMPERATURE_WARMING_AT,
+  VOLUME_HIGH_AT,
+  VOLUME_MEDIUM_AT,
+  VOLUME_VERY_HIGH_AT,
+} from "./metrics";
+import {
+  DEMAND_MOMENTUM_WEEKS,
+  HIGH_CONFIDENCE_SOURCES,
+  HISTORY_WEEKS,
+  LABEL_COLD_AT,
+  LABEL_HOT_AT,
+  MIN_SOURCE_WEEKS,
+  MIN_SOURCES_FOR_LABEL,
+  MIN_WEEKS_FOR_FULL_INDEX,
+} from "./signal-catalog";
 import {
   CANONICAL_ORIGIN,
+  DATASET_LICENSE,
   INDEPENDENT_DISCLAIMER,
   applySeoToShell,
+  buildAboutPage,
   buildHomePage,
+  buildMethodologyPage,
   buildProductPage,
   buildProductsPage,
   renderNotFoundHtml,
@@ -75,6 +106,8 @@ describe("sitemap.xml", () => {
     ]));
     expect(xml).toContain("<loc>https://www.m365-barometer.com/</loc>");
     expect(xml).toContain("<loc>https://www.m365-barometer.com/products</loc>");
+    expect(xml).toContain("<loc>https://www.m365-barometer.com/methodology</loc>");
+    expect(xml).toContain("<loc>https://www.m365-barometer.com/about</loc>");
     expect(xml).toContain("<loc>https://www.m365-barometer.com/products/microsoft-365-copilot</loc>");
     expect(xml).toContain("<loc>https://www.m365-barometer.com/products/teams-phone</loc>");
     expect(xml).toContain("<lastmod>2026-06-01T00:00:00.000Z</lastmod>");
@@ -287,6 +320,109 @@ describe("not found HTML", () => {
     expect(html).toContain("Page not found");
     expect(html).toContain(`content="noindex"`);
     expect(html).toContain(INDEPENDENT_DISCLAIMER);
+    expect(html).toContain(`href="${DATASET_LICENSE}"`);
+    expect(html).toContain("CC BY 4.0");
     expect(html).not.toContain(`id="root"`);
+  });
+});
+
+describe("footer and static pages", () => {
+  it("shows the CC BY 4.0 license and footer links in the visible shell", () => {
+    expect(shell).toContain(`href="${DATASET_LICENSE}"`);
+    expect(shell).toContain("CC BY 4.0");
+    expect(shell).toContain('rel="license"');
+    expect(shell).toContain('href="/methodology"');
+    expect(shell).toContain('href="/about"');
+    const html = applySeoToShell(shell, buildHomePage([]));
+    expect(html).toContain(`href="${DATASET_LICENSE}"`);
+    expect(html).toContain('href="/methodology"');
+    expect(html).toContain('href="/about"');
+    expect(html).toContain('"license":"https://creativecommons.org/licenses/by/4.0/"');
+  });
+
+  it("renders methodology from the scoring rules in code", () => {
+    const page = buildMethodologyPage();
+    const html = applySeoToShell(shell, page);
+    expect(page.title).toBe("Methodology | M365 Barometer");
+    expect(page.canonicalPath).toBe("/methodology");
+    expect(page.description.length).toBeGreaterThan(0);
+    expect(page.description.length).toBeLessThanOrEqual(160);
+    expect(html).toContain("<title>Methodology | M365 Barometer</title>");
+    expect(html).toContain(`<meta name="description" content="${page.description}" />`);
+    expect(html).toContain(`href="${CANONICAL_ORIGIN}/methodology"`);
+    expect(html).toContain('class="app-shell"');
+    expect(html).toContain('class="prose"');
+
+    const text = page.markdown;
+    expect(text).toContain("# Methodology");
+    expect(text).toContain("Supply and demand figures are estimates.");
+    expect(text).toContain(`[mc.merill.net](https://mc.merill.net/messages-index.json)`);
+    expect(text).toContain(`[Microsoft 365 Roadmap feed](https://www.microsoft.com/releasecommunications/api/v1/m365)`);
+    expect(text).toContain("Wikipedia pageviews");
+    expect(text).toContain("Hacker News");
+    expect(text).toContain("X post counts");
+    expect(text).toContain("YouTube and web evidence from the weekly sentiment searches");
+    expect(text).toContain("Reddit only as evidence from public search results");
+    expect(text).toContain(`only after ${MIN_SOURCE_WEEKS} weeks of history`);
+    expect(text).toContain("(MIN_SOURCE_WEEKS)");
+    expect(text).toContain(`trailing ${HISTORY_WEEKS} weeks`);
+    expect(text).toContain(`at least ${MIN_SOURCES_FOR_LABEL} usable sources`);
+    expect(text).toContain(`at least ${MIN_WEEKS_FOR_FULL_INDEX} weeks`);
+    expect(text).toContain(`demand index is ${LABEL_HOT_AT} or higher`);
+    expect(text).toContain(`demand index is ${LABEL_COLD_AT} or lower`);
+    expect(text).toContain(`previous ${DEMAND_MOMENTUM_WEEKS} weeks`);
+    expect(text).toContain(`High when it is ${HIGH_CONFIDENCE_SOURCES} or more`);
+    expect(text).toContain(`The score is ${SENTIMENT_SCORE_MIDPOINT} when nothing was classified`);
+    expect(text).toContain(`at least ${MIN_CLASSIFIED_EVIDENCE} evidence items`);
+    expect(text).toContain(`score is ${TEMPERATURE_HOT_AT} or higher`);
+    expect(text).toContain(`score is ${TEMPERATURE_COLD_AT} or lower`);
+    expect(text).toContain(`momentum is ${TEMPERATURE_WARMING_AT} or higher`);
+    expect(text).toContain(`momentum is ${TEMPERATURE_COOLING_AT} or lower`);
+    expect(text).toContain(`at least ${CONFIDENCE_VERY_HIGH_ITEMS} classified items and at least ${CONFIDENCE_VERY_HIGH_CATEGORIES} categories`);
+    expect(text).toContain(`at least ${CONFIDENCE_HIGH_ITEMS} classified items and at least ${CONFIDENCE_HIGH_CATEGORIES} categories`);
+    expect(text).toContain(`at least ${CONFIDENCE_MEDIUM_ITEMS} classified items and at least ${CONFIDENCE_MEDIUM_CATEGORIES} categories`);
+    expect(text).toContain(`When ${CONFIDENCE_FAILURES_BEFORE_DROP} or more configured sources have status failed`);
+    expect(text).toContain(`Very High at ${VOLUME_VERY_HIGH_AT} or more`);
+    expect(text).toContain(`High at ${VOLUME_HIGH_AT} or more`);
+    expect(text).toContain(`Medium at ${VOLUME_MEDIUM_AT} or more`);
+    for (const label of ["Hot", "Warming", "Stable", "Cooling", "Cold", "Neutral"]) {
+      expect(text).toContain(label);
+    }
+    for (const level of ["Very High", "High", "Medium", "Low", "not enough data"]) {
+      expect(text).toContain(level);
+    }
+    expect(text).not.toContain("<");
+    expect(text.toLowerCase()).not.toContain("sthoms");
+
+    const data = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1] ?? "{}") as {
+      "@graph": Array<{ "@type": string; license?: string; publisher?: { "@type": string; name: string } }>;
+    };
+    const webPage = data["@graph"].find((node) => node["@type"] === "WebPage");
+    expect(webPage?.license).toBe(DATASET_LICENSE);
+    expect(webPage?.publisher).toEqual({
+      "@type": "Organization",
+      name: "M365 Barometer",
+      url: `${CANONICAL_ORIGIN}/`,
+      disambiguatingDescription: INDEPENDENT_DISCLAIMER,
+    });
+  });
+
+  it("renders a short about page credited to the organization", () => {
+    const page = buildAboutPage();
+    const html = applySeoToShell(shell, page);
+    expect(page.title).toBe("About | M365 Barometer");
+    expect(page.canonicalPath).toBe("/about");
+    expect(page.description.length).toBeLessThanOrEqual(160);
+    expect(html).toContain("<title>About | M365 Barometer</title>");
+    expect(html).toContain(`<meta name="description" content="${page.description}" />`);
+    expect(html).toContain(`href="${CANONICAL_ORIGIN}/about"`);
+    expect(page.markdown).toContain("# About");
+    expect(page.markdown).toContain("independent community radar of which Microsoft 365 products are gaining or losing traction");
+    expect(page.markdown).toContain("not affiliated with Microsoft");
+    expect(page.markdown).toContain("independent organization");
+    expect(page.markdown).toContain(`[methodology](${CANONICAL_ORIGIN}/methodology)`);
+    expect(page.markdown).toContain(`[CC BY 4.0](${DATASET_LICENSE})`);
+    expect(page.markdown).not.toContain("<");
+    expect(page.markdown.toLowerCase()).not.toContain("sthoms");
   });
 });

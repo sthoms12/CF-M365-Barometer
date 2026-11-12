@@ -1,4 +1,5 @@
 import type { ProductSummary, SnapshotSummary } from "../shared/contracts";
+import { microsoftInvestmentFromRow } from "../shared/investment";
 
 type ProductRow = {
   id: string;
@@ -62,15 +63,30 @@ export async function getProducts(db: D1Database): Promise<ProductSummary[]> {
     SELECT p.*,
       s.id AS snapshot_id, s.analyzed_at, s.barometer_score, s.temperature, s.momentum,
       s.confidence, s.discussion_volume, s.summary, s.positive_signals_json,
-      s.negative_signals_json, s.source_breakdown_json, s.source_status_json
+      s.negative_signals_json, s.source_breakdown_json, s.source_status_json,
+      ann.window_start AS announcement_window_start,
+      ann.window_end AS announcement_window_end,
+      ann.as_of AS announcement_as_of,
+      ann.message_center_count AS announcement_message_center_count,
+      ann.roadmap_count AS announcement_roadmap_count,
+      ann.roadmap_status_json AS announcement_roadmap_status_json
     FROM products p
     LEFT JOIN sentiment_snapshots s ON s.id = (
       SELECT id FROM sentiment_snapshots
       WHERE product_id = p.id ORDER BY analyzed_at DESC LIMIT 1
     )
+    LEFT JOIN product_announcements ann ON ann.product_id = p.id
     WHERE p.is_active = 1 AND p.lifecycle_status = 'active'
     ORDER BY p.name
-  `).all<ProductRow & SnapshotRow & { snapshot_id: string | null }>();
+  `).all<ProductRow & SnapshotRow & {
+    snapshot_id: string | null;
+    announcement_window_start: string | null;
+    announcement_window_end: string | null;
+    announcement_as_of: string | null;
+    announcement_message_center_count: number | null;
+    announcement_roadmap_count: number | null;
+    announcement_roadmap_status_json: string | null;
+  }>();
 
   return results.map((row) => ({
     id: row.id,
@@ -82,6 +98,7 @@ export async function getProducts(db: D1Database): Promise<ProductSummary[]> {
     lastAnalyzedAt: row.last_analyzed_at,
     snapshot: row.snapshot_id ? mapSnapshot({ ...row, id: row.snapshot_id }) : null,
     isStale: isStale(row.last_analyzed_at),
+    microsoftInvestment: microsoftInvestmentFromRow(row),
   }));
 }
 

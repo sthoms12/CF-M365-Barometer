@@ -1,4 +1,5 @@
 import type { SupplyDemandScore } from "../shared/contracts";
+import { ANNOUNCEMENT_WINDOW_DAYS } from "../shared/investment";
 
 /** Weeks of a product's own history used for the 0–100 percentile. */
 export const HISTORY_WEEKS = 26;
@@ -186,7 +187,52 @@ export type CatalogItem = {
   services: string[];
   at: string | null;
   major?: boolean;
+  /** Roadmap feed status, such as "In development". Message Center items omit it. */
+  status?: string | null;
 };
+
+export function announcementWindow(now: Date): {
+  startMs: number;
+  endMs: number;
+  windowStart: string;
+  windowEnd: string;
+  asOf: string;
+} {
+  const endMs = now.getTime();
+  const startMs = endMs - ANNOUNCEMENT_WINDOW_DAYS * 86_400_000;
+  const asOf = new Date(endMs).toISOString();
+  return {
+    startMs,
+    endMs,
+    windowStart: new Date(startMs).toISOString(),
+    windowEnd: asOf,
+    asOf,
+  };
+}
+
+export function timestampInRange(iso: string, startMs: number, endMs: number): boolean {
+  const time = Date.parse(iso);
+  return !Number.isNaN(time) && time >= startMs && time <= endMs;
+}
+
+/** Items touched in the window that match the product. Status keys are the feed's own strings. */
+export function countMatchedAnnouncements(
+  items: readonly CatalogItem[],
+  profile: Pick<ResolvedSignalProfile, "services" | "phrases">,
+  startMs: number,
+  endMs: number,
+): { count: number; byStatus: Record<string, number> } {
+  const byStatus: Record<string, number> = {};
+  let count = 0;
+  for (const item of items) {
+    if (!item.at || !timestampInRange(item.at, startMs, endMs) || !itemMatches(item, profile)) continue;
+    count += 1;
+    const status = item.status?.trim();
+    if (!status) continue;
+    byStatus[status] = (byStatus[status] ?? 0) + 1;
+  }
+  return { count, byStatus };
+}
 
 export function itemMatches(item: CatalogItem, profile: Pick<ResolvedSignalProfile, "services" | "phrases">): boolean {
   const services = item.services.map((service) => service.toLowerCase());

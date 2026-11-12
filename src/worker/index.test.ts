@@ -114,6 +114,8 @@ describe("public crawl routes", () => {
     const body = await response.text();
     expect(body).toContain("https://www.m365-barometer.com/products/microsoft-365-copilot");
     expect(body).toContain("https://www.m365-barometer.com/products/teams-phone");
+    expect(body).toContain("https://www.m365-barometer.com/methodology");
+    expect(body).toContain("https://www.m365-barometer.com/about");
     expect(body).not.toContain("<html");
   });
 
@@ -230,6 +232,47 @@ describe("public crawl routes", () => {
     const response = await app.request("http://localhost/api/internal/analysis-runs/1/context", {}, bindings);
     expect(calls).toBe(0);
     expect(response.status).toBe(401);
+  });
+
+  it("serves methodology and about with canonical metadata and the footer", async () => {
+    const { bindings, fetched } = env();
+    const methodology = await app.request("http://localhost/methodology", {}, bindings);
+    expect(methodology.status).toBe(200);
+    expect(methodology.headers.get("content-type")).toContain("text/html");
+    expect(methodology.headers.get("link")).toContain('rel="alternate"; type="text/markdown"');
+    const html = await methodology.text();
+    expect(html).toContain("<title>Methodology | M365 Barometer</title>");
+    expect(html).toContain('name="description" content="How M365 Barometer computes its 0-100 sentiment score, temperature, confidence, and supply and demand estimates."');
+    expect(html).toContain('rel="canonical" href="https://www.m365-barometer.com/methodology"');
+    expect(html).toContain("Supply and demand figures are estimates.");
+    expect(html).toContain("MIN_SOURCE_WEEKS");
+    expect(html).toContain("mc.merill.net");
+    expect(html).toContain('href="https://creativecommons.org/licenses/by/4.0/"');
+    expect(html).toContain("CC BY 4.0");
+    expect(html).toContain('href="/about"');
+    expect(html).toContain('href="/methodology"');
+    expect(fetched).toEqual(["/index.html"]);
+
+    const about = await app.request("http://localhost/about", {}, bindings);
+    expect(about.status).toBe(200);
+    const aboutHtml = await about.text();
+    expect(aboutHtml).toContain("<title>About | M365 Barometer</title>");
+    expect(aboutHtml).toContain('name="description" content="An independent community radar of which Microsoft 365 products are gaining or losing traction. Not affiliated with Microsoft."');
+    expect(aboutHtml).toContain('rel="canonical" href="https://www.m365-barometer.com/about"');
+    expect(aboutHtml).toContain("independent organization");
+    expect(aboutHtml).toContain("not affiliated with Microsoft");
+
+    const markdown = await app.request("http://localhost/methodology", { headers: { Accept: "text/markdown" } }, bindings);
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get("content-type")).toContain("text/markdown");
+    const mirror = await markdown.text();
+    expect(mirror).toContain("# Methodology");
+    expect(mirror).toContain("Supply and demand figures are estimates.");
+    expect(mirror).not.toContain("<html");
+
+    const direct = await app.request("http://localhost/about.md", {}, bindings);
+    expect(direct.status).toBe(200);
+    expect(await direct.text()).toContain("# About");
   });
 
   it("rate limits public API routes", async () => {

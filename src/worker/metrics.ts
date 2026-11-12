@@ -1,11 +1,12 @@
-import type {
-  Confidence,
-  DiscussionVolume,
-  EvidenceItem,
-  Sentiment,
-  SourceBreakdown,
-  SourceCategory,
-  Temperature,
+import {
+  confidenceLevels,
+  type Confidence,
+  type DiscussionVolume,
+  type EvidenceItem,
+  type Sentiment,
+  type SourceBreakdown,
+  type SourceCategory,
+  type Temperature,
 } from "../shared/contracts";
 
 export const SOURCE_CATEGORY_MAP: Record<string, SourceCategory> = {
@@ -46,25 +47,44 @@ export function sourceBreakdown(evidence: EvidenceItem[]): SourceBreakdown {
   return result;
 }
 
+/** Empty input, and the origin of the 0–100 sentiment score. */
+export const SENTIMENT_SCORE_MIDPOINT = 50;
+export const TEMPERATURE_HOT_AT = 75;
+export const TEMPERATURE_COLD_AT = 25;
+export const TEMPERATURE_WARMING_AT = 5;
+export const TEMPERATURE_COOLING_AT = -5;
+export const VOLUME_VERY_HIGH_AT = 50;
+export const VOLUME_HIGH_AT = 25;
+export const VOLUME_MEDIUM_AT = 10;
+export const CONFIDENCE_VERY_HIGH_ITEMS = 40;
+export const CONFIDENCE_VERY_HIGH_CATEGORIES = 4;
+export const CONFIDENCE_HIGH_ITEMS = 20;
+export const CONFIDENCE_HIGH_CATEGORIES = 3;
+export const CONFIDENCE_MEDIUM_ITEMS = 8;
+export const CONFIDENCE_MEDIUM_CATEGORIES = 2;
+/** This many failed configured sources lowers confidence one step. */
+export const CONFIDENCE_FAILURES_BEFORE_DROP = 2;
+
 export function calculateScore(sentiments: Sentiment[]): number {
-  if (sentiments.length === 0) return 50;
+  if (sentiments.length === 0) return SENTIMENT_SCORE_MIDPOINT;
   const positive = sentiments.filter((item) => item === "positive").length;
   const negative = sentiments.filter((item) => item === "negative").length;
-  return Math.max(0, Math.min(100, Math.round(50 + 50 * ((positive - negative) / sentiments.length))));
+  const midpoint = SENTIMENT_SCORE_MIDPOINT;
+  return Math.max(0, Math.min(100, Math.round(midpoint + midpoint * ((positive - negative) / sentiments.length))));
 }
 
 export function calculateTemperature(score: number, momentum: number): Temperature {
-  if (score >= 75) return "Hot";
-  if (score <= 25) return "Cold";
-  if (momentum >= 5) return "Warming";
-  if (momentum <= -5) return "Cooling";
+  if (score >= TEMPERATURE_HOT_AT) return "Hot";
+  if (score <= TEMPERATURE_COLD_AT) return "Cold";
+  if (momentum >= TEMPERATURE_WARMING_AT) return "Warming";
+  if (momentum <= TEMPERATURE_COOLING_AT) return "Cooling";
   return "Stable";
 }
 
 export function calculateVolume(count: number): DiscussionVolume {
-  if (count >= 50) return "Very High";
-  if (count >= 25) return "High";
-  if (count >= 10) return "Medium";
+  if (count >= VOLUME_VERY_HIGH_AT) return "Very High";
+  if (count >= VOLUME_HIGH_AT) return "High";
+  if (count >= VOLUME_MEDIUM_AT) return "Medium";
   return "Low";
 }
 
@@ -73,16 +93,16 @@ export function calculateConfidence(
   categoryCount: number,
   failedConfiguredSources: number,
 ): Confidence {
-  let index = classifiedCount >= 40 && categoryCount >= 4
+  let index = classifiedCount >= CONFIDENCE_VERY_HIGH_ITEMS && categoryCount >= CONFIDENCE_VERY_HIGH_CATEGORIES
     ? 0
-    : classifiedCount >= 20 && categoryCount >= 3
+    : classifiedCount >= CONFIDENCE_HIGH_ITEMS && categoryCount >= CONFIDENCE_HIGH_CATEGORIES
       ? 1
-      : classifiedCount >= 8 && categoryCount >= 2
+      : classifiedCount >= CONFIDENCE_MEDIUM_ITEMS && categoryCount >= CONFIDENCE_MEDIUM_CATEGORIES
         ? 2
         : 3;
 
-  if (failedConfiguredSources >= 2) index = Math.min(3, index + 1);
-  return (["Very High", "High", "Medium", "Low"] as const)[index];
+  if (failedConfiguredSources >= CONFIDENCE_FAILURES_BEFORE_DROP) index = Math.min(3, index + 1);
+  return confidenceLevels[index];
 }
 
 export function selectSampleMentions<T extends EvidenceItem & { sentiment: Sentiment }>(

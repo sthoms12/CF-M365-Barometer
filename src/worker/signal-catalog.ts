@@ -9,6 +9,14 @@ export const MIN_WEEKS_FOR_FULL_INDEX = 4;
 export const MIN_SOURCE_WEEKS = 4;
 /** Hot / Neutral / Cold needs this many sources in the scored week. */
 export const MIN_SOURCES_FOR_LABEL = 3;
+/** Demand index at or above this, with positive momentum, is Hot. */
+export const LABEL_HOT_AT = 70;
+/** Demand index at or below this, with negative momentum, is Cold. */
+export const LABEL_COLD_AT = 30;
+/** How many earlier demand indexes are averaged for momentum. */
+export const DEMAND_MOMENTUM_WEEKS = 4;
+/** Supply/demand confidence is High once the scored week has this many sources. */
+export const HIGH_CONFIDENCE_SOURCES = 5;
 
 export type SignalKind = "supply" | "demand";
 
@@ -320,7 +328,7 @@ export function scoreSupplyDemand(signals: readonly ScoreSignal[], now: Date): S
   const priorHeats = [...heats.entries()]
     .filter(([week]) => week < scoreWeek)
     .sort(([left], [right]) => left.localeCompare(right))
-    .slice(-4)
+    .slice(-DEMAND_MOMENTUM_WEEKS)
     .map(([, heat]) => heat);
   const momentum = currentHeat === undefined || priorHeats.length === 0
     ? null
@@ -331,7 +339,7 @@ export function scoreSupplyDemand(signals: readonly ScoreSignal[], now: Date): S
     ? "not enough data"
     : sources < MIN_SOURCES_FOR_LABEL
       ? "Low"
-      : sources < 5
+      : sources < HIGH_CONFIDENCE_SOURCES
         ? "Medium"
         : "High";
   const label = demand && momentum !== null && sources >= MIN_SOURCES_FOR_LABEL && demand.weeks >= MIN_WEEKS_FOR_FULL_INDEX
@@ -370,8 +378,8 @@ function listPendingSources(signals: readonly ScoreSignal[]): SupplyDemandScore[
 }
 
 function labelFor(heat: number, momentum: number): SupplyDemandScore["label"] {
-  if (heat >= 70 && momentum > 0) return "Hot";
-  if (heat <= 30 && momentum < 0) return "Cold";
+  if (heat >= LABEL_HOT_AT && momentum > 0) return "Hot";
+  if (heat <= LABEL_COLD_AT && momentum < 0) return "Cold";
   return "Neutral";
 }
 

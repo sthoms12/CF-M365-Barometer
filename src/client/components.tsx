@@ -1,6 +1,7 @@
 import { ArrowDownRight, ArrowUpRight, Clock3 } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { ProductSummary, SnapshotSummary } from "../shared/contracts";
+import type { MicrosoftInvestment, ProductSummary, SnapshotSummary } from "../shared/contracts";
+import { investmentView } from "../shared/investment";
 
 export function Score({ value, size = "normal" }: { value: number; size?: "normal" | "large" }) {
   const tone = value >= 65 ? "positive" : value <= 35 ? "negative" : "neutral";
@@ -26,6 +27,28 @@ export function Momentum({ value }: { value: number }) {
   );
 }
 
+export function MicrosoftInvestmentPanel({ investment, compact = false }: { investment?: MicrosoftInvestment; compact?: boolean }) {
+  const view = investmentView(investment);
+  const Title = compact ? "p" : "h2";
+  return (
+    <div className={compact ? "investment investment-compact" : "investment"} aria-label={view.title}>
+      <Title className={compact ? "investment-title" : undefined}>{view.title}</Title>
+      <p className="investment-note">{view.label}</p>
+      <p>{view.windowLabel}</p>
+      <p>{view.asOfLabel}</p>
+      <p>Roadmap: <strong>{view.roadmap}</strong></p>
+      {view.statuses.length > 0 && (
+        <ul>
+          {view.statuses.map((line) => (
+            <li key={line.status}><span>{line.status}</span><strong>{line.value}</strong></li>
+          ))}
+        </ul>
+      )}
+      <p>Message Center: <strong>{view.messageCenter}</strong></p>
+    </div>
+  );
+}
+
 export function ProductCard({ product }: { product: ProductSummary }) {
   return (
     <Link className="product-card" to={`/products/${product.slug}`}>
@@ -36,6 +59,7 @@ export function ProductCard({ product }: { product: ProductSummary }) {
         </div>
         {product.snapshot ? <Score value={product.snapshot.barometerScore} /> : <span className="no-score">Pending</span>}
       </div>
+      <MicrosoftInvestmentPanel investment={product.microsoftInvestment} compact />
       <div className="product-card-meta">
         {product.snapshot ? (
           <>

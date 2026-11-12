@@ -1,5 +1,6 @@
 import type { ProductSummary, SupplyDemandScore } from "../shared/contracts";
 import { momentumHtml, productCardHtml, renderSiteHeader } from "./home-shell";
+import { investmentPanelHtml } from "./investment-html";
 
 export type ShellMention = {
   sourceType: string;
@@ -114,7 +115,8 @@ export function renderProductAppShell(
   const safe = safeMentions(mentions);
   const snapshot = product.snapshot;
   const score = snapshot ? scoreHtml(snapshot.barometerScore, "large") : `<span class="no-score">Pending first reading</span>`;
-  const hero = `<section class="product-hero"><div><p class="eyebrow">Microsoft 365 community barometer</p><h1>${escapeHtml(product.name)}</h1><p>${escapeHtml(product.description ?? "")}</p><span class="last-analyzed">Last analyzed: ${escapeHtml(formatDate(product.lastAnalyzedAt))}${product.isStale ? " · stale" : ""}</span></div>${score}</section>`;
+  const investment = investmentPanelHtml(product.microsoftInvestment, escapeHtml, "panel");
+  const hero = `<section class="product-hero"><div><p class="eyebrow">Microsoft 365 community barometer</p><h1>${escapeHtml(product.name)}</h1><p>${escapeHtml(product.description ?? "")}</p><span class="last-analyzed">Last analyzed: ${escapeHtml(formatDate(product.lastAnalyzedAt))}${product.isStale ? " · stale" : ""}</span></div><div class="product-hero-aside">${investment}${score}</div></section>`;
   const reading = snapshot
     ? `<section class="metric-strip"><div><span>Temperature</span><span class="temperature temperature-${snapshot.temperature.toLowerCase()}">${escapeHtml(snapshot.temperature)}</span></div><div><span>Momentum</span>${momentumHtml(snapshot.momentum)}</div><div><span>Confidence</span><strong>${escapeHtml(snapshot.confidence)}</strong></div><div><span>Discussion volume</span><strong>${escapeHtml(snapshot.discussionVolume)}</strong></div></section><section class="detail-band summary-band"><div><p class="eyebrow">Current reading</p><h2>What the community signal says</h2></div><p class="summary-copy">${escapeHtml(snapshot.summary)}</p></section><section class="signal-columns"><div><h2>Positive signals</h2><ul>${snapshot.positiveSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join("")}</ul></div><div><h2>Negative signals</h2><ul>${snapshot.negativeSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join("")}</ul></div></section><section class="detail-band"><h2>Historical trend</h2>${trendHtml(history)}</section><section class="detail-band"><h2>Source breakdown</h2><div class="source-bars">${Object.entries(snapshot.sourceBreakdown).map(([source, count]) => `<div><span>${escapeHtml(source)}</span><div><i style="width:${Math.min(100, count * 5)}%"></i></div><strong>${count}</strong></div>`).join("")}</div></section><section class="detail-band"><h2>Sample public mentions</h2>${mentionHtml(safe)}</section>`
     : emptyStateHtml("The first automated Last30Days analysis is scheduled. No manual import is required.");

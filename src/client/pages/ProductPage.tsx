@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import type { ProductSummary, SupplyDemandScore } from "../../shared/contracts";
 import { api, formatDate } from "../api";
 import { readProductBootstrap } from "../bootstrap";
-import { EmptyState, Momentum, Score, TemperatureBadge } from "../components";
+import { EmptyState, MicrosoftInvestmentPanel, Momentum, Score, TemperatureBadge } from "../components";
 import { MentionList, TrendChart } from "../product-visuals";
 
 type Detail = { product: ProductSummary; mentions: Array<Record<string, unknown>> };
@@ -58,7 +58,10 @@ export function ProductPage() {
           <p>{product.description}</p>
           <span className="last-analyzed">Last analyzed: {formatDate(product.lastAnalyzedAt)}{product.isStale ? " · stale" : ""}</span>
         </div>
-        {snapshot ? <Score value={snapshot.barometerScore} size="large" /> : <span className="no-score">Pending first reading</span>}
+        <div className="product-hero-aside">
+          <MicrosoftInvestmentPanel investment={product.microsoftInvestment} />
+          {snapshot ? <Score value={snapshot.barometerScore} size="large" /> : <span className="no-score">Pending first reading</span>}
+        </div>
       </section>
       <SupplyDemand score={product.supplyDemand} />
       {!snapshot ? <EmptyState message="The first automated Last30Days analysis is scheduled. No manual import is required." /> : (

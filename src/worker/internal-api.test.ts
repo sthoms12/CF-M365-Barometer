@@ -75,6 +75,17 @@ CREATE TABLE sentiment_snapshots (
   ai_model TEXT NOT NULL
 );
 
+CREATE TABLE product_announcements (
+  product_id TEXT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+  window_start TEXT NOT NULL,
+  window_end TEXT NOT NULL,
+  as_of TEXT NOT NULL,
+  message_center_count INTEGER,
+  roadmap_count INTEGER,
+  roadmap_status_json TEXT,
+  collected_at TEXT NOT NULL
+);
+
 CREATE TABLE source_mentions (
   id TEXT PRIMARY KEY,
   snapshot_id TEXT NOT NULL REFERENCES sentiment_snapshots(id) ON DELETE CASCADE,

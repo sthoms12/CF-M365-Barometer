@@ -1,5 +1,6 @@
 import type { ProductSummary } from "../shared/contracts";
 import { buildHomeSections, homeSectionCopy, homeSectionOrder } from "../shared/home";
+import { investmentPanelHtml } from "./investment-html";
 
 function escapeHtml(value: string): string {
   return value
@@ -48,7 +49,8 @@ export function productCardHtml(product: ProductSummary): string {
   const stale = product.isStale
     ? `<span class="stale">${icon(13, `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`)} Stale</span>`
     : "";
-  return `<a class="product-card" href="${href}"><div class="product-card-main"><div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.description ?? "")}</p></div>${score}</div><div class="product-card-meta">${meta}${stale}</div></a>`;
+  const investment = investmentPanelHtml(product.microsoftInvestment, escapeHtml, "compact");
+  return `<a class="product-card" href="${href}"><div class="product-card-main"><div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.description ?? "")}</p></div>${score}</div>${investment}<div class="product-card-meta">${meta}${stale}</div></a>`;
 }
 
 export function renderHomeAppShell(products: ProductSummary[]): string {

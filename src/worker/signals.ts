@@ -1,7 +1,10 @@
 import { externalSignalSchema } from "../shared/contracts";
 import type { SupplyDemandScore } from "../shared/contracts";
+import { roadmapStatusCounts } from "../shared/investment";
 import {
+  announcementWindow,
   countHitsByWeek,
+  countMatchedAnnouncements,
   emptySupplyDemand,
   isMonday,
   isoWeekStart,
@@ -195,6 +198,15 @@ async function collectSources(
       const message = error instanceof Error ? error.message : "Source failed";
       result.errors.push({ source, message });
       console.error(JSON.stringify({ event: "signal_source_failed", source, message }));
+      // A failed catalog fetch must not be stored as zero announcements.
+      if (isCatalogSource(source)) {
+        try {
+          await writeAnnouncementSource(env.DB, products, source, null, options.now);
+        } catch (writeError) {
+          const writeMessage = writeError instanceof Error ? writeError.message : "Announcement update failed";
+          console.error(JSON.stringify({ event: "announcement_unavailable_write_failed", source, message: writeMessage }));
+        }
+      }
     }
   }
   console.log(JSON.stringify({
@@ -251,7 +263,85 @@ async function collectCatalog(
     }
   }
   await writeSignals(db, writes, now);
+  if (isCatalogSource(source)) await writeAnnouncementSource(db, products, source, items, now);
   return { wrote: writes.length, skipped: [], errors: [] };
+}
+
+const UPSERT_MESSAGE_CENTER = `
+  INSERT INTO product_announcements (
+    product_id, window_start, window_end, as_of,
+    message_center_count, roadmap_count, roadmap_status_json, collected_at
+  ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)
+  ON CONFLICT(product_id) DO UPDATE SET
+    window_start = excluded.window_start,
+    window_end = excluded.window_end,
+    as_of = excluded.as_of,
+    message_center_count = excluded.message_center_count,
+    collected_at = excluded.collected_at
+`;
+
+const UPSERT_ROADMAP = `
+  INSERT INTO product_announcements (
+    product_id, window_start, window_end, as_of,
+    message_center_count, roadmap_count, roadmap_status_json, collected_at
+  ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+  ON CONFLICT(product_id) DO UPDATE SET
+    window_start = excluded.window_start,
+    window_end = excluded.window_end,
+    as_of = excluded.as_of,
+    roadmap_count = excluded.roadmap_count,
+    roadmap_status_json = excluded.roadmap_status_json,
+    collected_at = excluded.collected_at
+`;
+
+function isCatalogSource(source: string): source is "message_center" | "roadmap" {
+  return source === "message_center" || source === "roadmap";
+}
+
+/**
+ * Persist the 30-day announcement snapshot for one catalog feed.
+ * `items === null` means the fetch failed: store NULL, never 0.
+ * A successful payload stores the real match count, including 0.
+ */
+async function writeAnnouncementSource(
+  db: D1Database,
+  products: SignalProduct[],
+  source: "message_center" | "roadmap",
+  items: CatalogItem[] | null,
+  now: Date,
+): Promise<void> {
+  if (products.length === 0) return;
+  const window = announcementWindow(now);
+  const collectedAt = now.toISOString();
+  const statements = products.map((product) => {
+    const matched = items === null
+      ? null
+      : countMatchedAnnouncements(items, product.profile, window.startMs, window.endMs);
+    const count = matched === null ? null : matched.count;
+    if (source === "message_center") {
+      return db.prepare(UPSERT_MESSAGE_CENTER).bind(
+        product.id,
+        window.windowStart,
+        window.windowEnd,
+        window.asOf,
+        count,
+        collectedAt,
+      );
+    }
+    const statusJson = matched === null ? null : JSON.stringify(roadmapStatusCounts(matched.byStatus));
+    return db.prepare(UPSERT_ROADMAP).bind(
+      product.id,
+      window.windowStart,
+      window.windowEnd,
+      window.asOf,
+      count,
+      statusJson,
+      collectedAt,
+    );
+  });
+  for (let index = 0; index < statements.length; index += 20) {
+    await db.batch(statements.slice(index, index + 20));
+  }
 }
 
 async function collectWikipedia(
@@ -402,6 +492,13 @@ function messageCenterItems(payload: unknown): CatalogItem[] {
   });
 }
 
+function roadmapStatus(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const status = value.trim();
+  if (!status || status.length > 80) return null;
+  return status;
+}
+
 function roadmapItems(payload: unknown): CatalogItem[] {
   if (!Array.isArray(payload)) throw new Error("Roadmap feed was not a list");
   return payload.flatMap((entry) => {
@@ -416,6 +513,7 @@ function roadmapItems(payload: unknown): CatalogItem[] {
       services: (tags?.products ?? []).map((tag) => String(tag.tagName ?? "")).filter(Boolean),
       at: modified ?? created,
       major: false,
+      status: roadmapStatus(item.status),
     }];
   });
 }

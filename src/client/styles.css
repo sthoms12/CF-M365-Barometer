@@ -103,6 +103,8 @@ a { color: inherit; text-decoration: none; }
 .product-card-main { display: flex; gap: 16px; justify-content: space-between; }
 .product-card h3 { font: 600 17px "Space Grotesk"; margin: 0 0 6px; }
 .product-card p { margin: 0; font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.product-card .investment p { display: block; -webkit-line-clamp: unset; -webkit-box-orient: horizontal; overflow: visible; color: var(--ink); }
+.product-card .investment .investment-note { color: var(--muted); }
 .product-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 
 .score { flex: 0 0 auto; width: 62px; height: 62px; display: grid; place-content: center; text-align: center; border: 4px solid; background: white; }
@@ -128,7 +130,17 @@ a { color: inherit; text-decoration: none; }
 .page-title { padding: 20px 0 35px; }
 .page-title h1, .product-hero h1 { font-size: clamp(34px, 5vw, 60px); }
 .page-title p, .product-hero p { color: var(--muted); max-width: 700px; }
-.product-hero { padding: 32px 0 48px; display: flex; justify-content: space-between; gap: 30px; align-items: center; border-bottom: 1px solid var(--line); }
+.product-hero { padding: 32px 0 48px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 30px; align-items: flex-start; border-bottom: 1px solid var(--line); }
+.product-hero-aside { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; justify-content: flex-end; }
+.investment { border: 1px solid var(--line); background: white; padding: 14px 16px; min-width: 240px; max-width: 340px; display: grid; gap: 4px; }
+.investment h2, .investment .investment-title { font: 600 15px "Space Grotesk"; margin: 0; color: var(--ink); }
+.investment p { margin: 0; font-size: 13px; color: var(--ink); }
+.investment .investment-note { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.investment ul { list-style: none; margin: 2px 0 4px; padding: 0; display: grid; gap: 2px; }
+.investment li { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); }
+.investment li strong, .investment p strong { color: var(--ink); }
+.investment-compact { min-width: 0; max-width: none; margin-top: 14px; padding: 10px 12px; background: #f7fafa; }
+.investment-compact h2, .investment-compact .investment-title { font-size: 13px; }
 .last-analyzed { font-size: 12px; color: var(--muted); }
 .metric-strip { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--navy); color: white; }
 .metric-strip > div { padding: 20px; display: grid; gap: 8px; border-right: 1px solid #324049; }
@@ -184,6 +196,9 @@ td small { color: var(--muted); margin-top: 3px; font-size: 10px; }
   .dashboard-sections, .page-shell { padding: 25px 14px 60px; }
   .product-grid, .product-grid.wide, .mention-list, .signal-columns { grid-template-columns: 1fr; }
   .product-hero { align-items: flex-start; }
+  .product-hero > div { width: 100%; }
+  .product-hero-aside { width: 100%; justify-content: flex-start; }
+  .investment { max-width: none; width: 100%; }
   .score-large { width: 95px; height: 95px; border-width: 5px; }
   .score-large span { font-size: 34px; }
   .metric-strip { grid-template-columns: 1fr 1fr; }

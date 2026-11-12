@@ -1,4 +1,5 @@
 import type { ProductSummary, SnapshotSummary, SupplyDemandScore } from "../shared/contracts";
+import { investmentView } from "../shared/investment";
 import { renderHomeAppShell } from "./home-shell";
 import { renderProductAppShell, renderProductsAppShell, type ShellHistoryPoint } from "./page-shell";
 
@@ -185,6 +186,7 @@ export function buildProductPage(
       : "",
     snapshot ? sourceSection(snapshot) : "",
     supplyDemandSection(product.supplyDemand),
+    investmentSection(product),
     mentions.length ? mentionSection(mentions) : "",
   ].join("");
   const semantic = `<main>
@@ -289,7 +291,7 @@ function renderProductSummary(product: ProductSummary): string {
     ? `<p>Barometer score: ${snapshot.barometerScore}/100. Temperature: ${escapeHtml(snapshot.temperature)}. Momentum: ${formatMomentum(snapshot.momentum)}. Confidence: ${escapeHtml(snapshot.confidence)}. Discussion volume: ${escapeHtml(snapshot.discussionVolume)}.</p><p>${escapeHtml(snapshot.summary)}</p>`
     : "<p>No automated reading is stored for this product yet.</p>";
   const stale = product.isStale ? "<p>Stale</p>" : "";
-  return `<a href="${href}">${escapeHtml(product.name)}</a>${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}${reading}${stale}`;
+  return `<a href="${href}">${escapeHtml(product.name)}</a>${product.description ? `<p>${escapeHtml(product.description)}</p>` : ""}${reading}${investmentSummary(product)}${stale}`;
 }
 
 function readingSection(snapshot: SnapshotSummary): string {
@@ -307,6 +309,21 @@ function sourceSection(snapshot: SnapshotSummary): string {
     .map(([source, count]) => `<li>${escapeHtml(source)}: ${count}</li>`)
     .join("");
   return `<h2>Source breakdown</h2><ul>${items}</ul>`;
+}
+
+function investmentSection(product: ProductSummary): string {
+  const view = investmentView(product.microsoftInvestment);
+  const statuses = view.statuses
+    .map((line) => `<li>${escapeHtml(line.status)}: ${escapeHtml(line.value)}</li>`)
+    .join("");
+  return `<h2>${escapeHtml(view.title)}</h2><p>${escapeHtml(view.label)}</p><p>${escapeHtml(view.windowLabel)}</p><p>${escapeHtml(view.asOfLabel)}</p><p>Roadmap: ${escapeHtml(view.roadmap)}</p>${statuses ? `<ul>${statuses}</ul>` : ""}<p>Message Center: ${escapeHtml(view.messageCenter)}</p>`;
+}
+
+function investmentSummary(product: ProductSummary): string {
+  const view = investmentView(product.microsoftInvestment);
+  const statuses = view.statuses.map((line) => `${line.status}: ${line.value}`).join(", ");
+  const split = statuses ? ` (${statuses})` : "";
+  return `<p>${escapeHtml(view.title)}. ${escapeHtml(view.label)} ${escapeHtml(view.windowLabel)}. ${escapeHtml(view.asOfLabel)}. Roadmap: ${escapeHtml(view.roadmap)}${escapeHtml(split)}. Message Center: ${escapeHtml(view.messageCenter)}.</p>`;
 }
 
 function supplyDemandSection(score: SupplyDemandScore | undefined): string {

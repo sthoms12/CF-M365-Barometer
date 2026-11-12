@@ -132,6 +132,39 @@ export const externalSignalSchema = z.object({
 
 export type ExternalSignalInput = z.infer<typeof externalSignalSchema>;
 
+/** A feed that responded. `count` may be 0 when nothing matched. */
+export type AvailableAnnouncementCount = {
+  available: true;
+  count: number;
+};
+
+/** The feed failed or has not been collected. There is no count to show. */
+export type UnavailableAnnouncementCount = {
+  available: false;
+};
+
+export type AnnouncementCount = AvailableAnnouncementCount | UnavailableAnnouncementCount;
+
+export type RoadmapAnnouncements = UnavailableAnnouncementCount | {
+  available: true;
+  count: number;
+  /** Keys are the roadmap feed's own status strings. */
+  byStatus: Record<string, number>;
+};
+
+/**
+ * Counts of Microsoft announcements over a rolling window. This is an
+ * indicator of Microsoft investment. It is not a sentiment score.
+ */
+export type MicrosoftInvestment = {
+  windowDays: 30;
+  windowStart: string | null;
+  windowEnd: string | null;
+  asOf: string | null;
+  messageCenter: AnnouncementCount;
+  roadmap: RoadmapAnnouncements;
+};
+
 export type ProductSummary = {
   id: string;
   slug: string;
@@ -144,6 +177,7 @@ export type ProductSummary = {
   isStale: boolean;
   lifecycleStatus?: "draft" | "ready" | "active" | "archived";
   supplyDemand?: SupplyDemandScore;
+  microsoftInvestment?: MicrosoftInvestment;
 };
 
 export type SnapshotSummary = {

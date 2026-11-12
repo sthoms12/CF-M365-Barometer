@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { ProductSummary } from "../shared/contracts";
+import type { MicrosoftInvestment, ProductSummary } from "../shared/contracts";
 import {
   CANONICAL_ORIGIN,
   INDEPENDENT_DISCLAIMER,
@@ -156,6 +156,14 @@ describe("public HTML", () => {
     expect(html).toContain("No automated reading is stored for this product yet.");
     expect(html).toContain("Supply vs demand");
     expect(html).toContain("Not enough data");
+    expect(html).toContain("Microsoft investment");
+    expect(html).toContain("Counts of Microsoft announcements, an indicator of Microsoft investment.");
+    expect(html).toContain("Last 30 days");
+    expect(html).toContain("As of not available");
+    expect(html).toContain("Roadmap: not available");
+    expect(html).toContain("Message Center: not available");
+    expect(html).not.toContain("Roadmap: 0");
+    expect(html).not.toContain("Message Center: 0");
     expect(html).not.toContain("Barometer score:");
     expect(html).not.toContain("Hot");
     expect(html).not.toContain("variableMeasured");
@@ -183,6 +191,53 @@ describe("public HTML", () => {
     expect(html).toContain("Supply vs demand: +48 (estimate)");
     expect(html).toContain("Hot (estimate)");
     expect(html).toContain("Confidence: Medium");
+  });
+
+  it("shows announcement counts beside the score and keeps a failed feed unavailable", () => {
+    const collected: MicrosoftInvestment = {
+      windowDays: 30,
+      windowStart: "2026-09-14T15:00:00.000Z",
+      windowEnd: "2026-10-14T15:00:00.000Z",
+      asOf: "2026-10-14T15:00:00.000Z",
+      messageCenter: { available: false },
+      roadmap: {
+        available: true,
+        count: 4,
+        byStatus: {
+          "In development": 1,
+          "Rolling out": 1,
+          Launched: 1,
+          Cancelled: 1,
+        },
+      },
+    };
+    const html = applySeoToShell(shell, buildProductPage(reading, [], []));
+    const withCounts = applySeoToShell(shell, buildProductPage(product({
+      ...reading,
+      microsoftInvestment: collected,
+    }), []));
+    const home = applySeoToShell(shell, buildHomePage([product({
+      ...reading,
+      microsoftInvestment: collected,
+    })]));
+
+    expect(withCounts).toContain("Barometer score: 72/100");
+    expect(withCounts).toContain("Microsoft investment");
+    expect(withCounts).toContain("Counts of Microsoft announcements, an indicator of Microsoft investment.");
+    expect(withCounts).toContain("Last 30 days (Sep 14, 2026 - Oct 14, 2026)");
+    expect(withCounts).toContain("As of Oct 14, 2026");
+    expect(withCounts).toContain("Roadmap: <strong>4</strong>");
+    expect(withCounts).toContain("In development");
+    expect(withCounts).toContain("Rolling out");
+    expect(withCounts).toContain("Launched");
+    expect(withCounts).toContain("Cancelled");
+    expect(withCounts).toContain("Message Center: <strong>not available</strong>");
+    expect(withCounts).not.toContain("Message Center: <strong>0</strong>");
+    expect(withCounts).not.toContain("Message Center: 0");
+    expect(home).toContain("investment-compact");
+    expect(home).toContain("Barometer score: 72/100");
+    expect(home).toContain("Roadmap: <strong>4</strong>");
+    expect(html).toContain("As of not available");
   });
 
   it("escapes product text and drops unsafe mention URLs", () => {

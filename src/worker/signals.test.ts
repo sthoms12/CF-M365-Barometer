@@ -2,6 +2,8 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import worker from "./index";
 import {
+  announcementWindow,
+  countMatchedAnnouncements,
   isoWeekStart,
   itemMatches,
   lastCompletedWeek,
@@ -12,7 +14,7 @@ import {
   weekSequence,
   type CatalogItem,
 } from "./signal-catalog";
-import { collectWeeklySignals, backfillSignalHistory, ingestExternalSignals } from "./signals";
+import { collectWeeklySignals, backfillSignalHistory, ingestExternalSignals, readSupplyDemand } from "./signals";
 
 const TOKEN = "ingest-test-token";
 const NOW = new Date("2026-10-14T15:00:00.000Z");
@@ -44,6 +46,37 @@ CREATE TABLE signals (
   meta_json TEXT NOT NULL DEFAULT '{}',
   collected_at TEXT NOT NULL,
   UNIQUE (product_id, week, source)
+);
+CREATE TABLE product_announcements (
+  product_id TEXT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+  window_start TEXT NOT NULL,
+  window_end TEXT NOT NULL,
+  as_of TEXT NOT NULL,
+  message_center_count INTEGER,
+  roadmap_count INTEGER,
+  roadmap_status_json TEXT,
+  collected_at TEXT NOT NULL,
+  CHECK (message_center_count IS NULL OR message_center_count >= 0),
+  CHECK (roadmap_count IS NULL OR roadmap_count >= 0),
+  CHECK (
+    (roadmap_count IS NULL AND roadmap_status_json IS NULL)
+    OR (roadmap_count IS NOT NULL AND roadmap_status_json IS NOT NULL)
+  )
+);
+CREATE TABLE sentiment_snapshots (
+  id TEXT PRIMARY KEY,
+  product_id TEXT,
+  analyzed_at TEXT,
+  barometer_score INTEGER,
+  temperature TEXT,
+  momentum INTEGER,
+  confidence TEXT,
+  discussion_volume TEXT,
+  summary TEXT,
+  positive_signals_json TEXT,
+  negative_signals_json TEXT,
+  source_breakdown_json TEXT,
+  source_status_json TEXT
 );
 `;
 
@@ -90,6 +123,27 @@ function insertProduct(sqlite: DatabaseSync, slug: string, active = 1) {
       is_active, lifecycle_status, created_at, updated_at
     ) VALUES (?, ?, ?, '', 'query', '[]', '{}', ?, 'active', '2026-01-01', '2026-01-01')
   `).run(`prod-${slug}`, slug, slug, active);
+}
+
+function announcementRows(sqlite: DatabaseSync) {
+  return sqlite.prepare(`
+    SELECT p.slug,
+      a.message_center_count AS messageCenterCount,
+      a.roadmap_count AS roadmapCount,
+      a.roadmap_status_json AS roadmapStatusJson,
+      a.window_start AS windowStart,
+      a.as_of AS asOf
+    FROM product_announcements a
+    JOIN products p ON p.id = a.product_id
+    ORDER BY p.slug
+  `).all() as Array<{
+    slug: string;
+    messageCenterCount: number | null;
+    roadmapCount: number | null;
+    roadmapStatusJson: string | null;
+    windowStart: string;
+    asOf: string;
+  }>;
 }
 
 function signalRows(sqlite: DatabaseSync) {
@@ -326,6 +380,16 @@ describe("weekly collectors", () => {
     expect(wikipedia).toMatchObject({ slug: "microsoft-365-copilot", week: "2026-10-05", kind: "demand", value: 10 });
     expect(JSON.parse(wikipedia?.metaJson ?? "{}").estimated).toBe(true);
     expect(rows.find((row) => row.slug === "microsoft-365-copilot" && row.source === "hacker_news")?.value).toBe(2);
+    const announcements = announcementRows(sqlite);
+    expect(announcements.find((row) => row.slug === "microsoft-365-copilot")).toMatchObject({
+      messageCenterCount: 1,
+      roadmapCount: null,
+      roadmapStatusJson: null,
+    });
+    expect(announcements.find((row) => row.slug === "microsoft-lists")).toMatchObject({
+      messageCenterCount: 0,
+      roadmapCount: null,
+    });
   });
 
   it("backfills Wikipedia and Hacker News history without splitting a truncated search", async () => {
@@ -392,6 +456,297 @@ describe("weekly collectors", () => {
     const wikipedia = signalRows(sqlite).filter((row) => row.source === "wikipedia");
     expect(wikipedia).toHaveLength(1);
     expect(wikipedia[0]?.value).toBe(1234);
+  });
+});
+
+const MESSAGE_CENTER_FIXTURE = [
+  {
+    Id: "MC-week",
+    Title: "Microsoft 365 Copilot change",
+    Services: ["Microsoft Copilot (Microsoft 365)"],
+    LastModifiedDateTime: "2026-10-06T12:00:00Z",
+    IsMajorChange: true,
+  },
+  {
+    Id: "MC-older",
+    Title: "Microsoft 365 Copilot retention tweak",
+    Services: ["Microsoft Copilot (Microsoft 365)"],
+    LastModifiedDateTime: "2026-09-20T12:00:00Z",
+    IsMajorChange: false,
+  },
+  {
+    Id: "MC-stale",
+    Title: "Microsoft 365 Copilot archive",
+    Services: ["Microsoft Copilot (Microsoft 365)"],
+    LastModifiedDateTime: "2026-08-01T12:00:00Z",
+    IsMajorChange: false,
+  },
+  {
+    Id: "MC-phone",
+    Title: "Microsoft Teams: Teams Phone queue hours",
+    Services: ["Microsoft Teams"],
+    LastModifiedDateTime: "2026-10-07T12:00:00Z",
+    IsMajorChange: false,
+  },
+  {
+    Id: "MC-teams",
+    Title: "Microsoft Teams: new meeting theme",
+    Services: ["Microsoft Teams"],
+    LastModifiedDateTime: "2026-10-07T12:00:00Z",
+    IsMajorChange: false,
+  },
+];
+
+const ROADMAP_FIXTURE = [
+  {
+    id: 1,
+    title: "Microsoft 365 Copilot drafting",
+    status: "In development",
+    modified: "2026-10-06T12:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Copilot (Microsoft 365)" }] },
+  },
+  {
+    id: 2,
+    title: "Microsoft 365 Copilot rollout",
+    status: "Rolling out",
+    modified: "2026-09-20T12:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Copilot (Microsoft 365)" }] },
+  },
+  {
+    id: 3,
+    title: "Microsoft 365 Copilot general availability",
+    status: "Launched",
+    modified: "2026-10-08T12:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Copilot (Microsoft 365)" }] },
+  },
+  {
+    id: 4,
+    title: "Microsoft 365 Copilot old launch",
+    status: "Launched",
+    modified: "2026-08-01T12:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Copilot (Microsoft 365)" }] },
+  },
+  {
+    id: 5,
+    title: "Microsoft 365 Copilot cancelled experiment",
+    status: "Cancelled",
+    modified: "2026-10-01T12:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Copilot (Microsoft 365)" }] },
+  },
+  {
+    id: 6,
+    title: "Copilot item dated after the collection",
+    status: "In development",
+    modified: "2026-10-15T00:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Copilot (Microsoft 365)" }] },
+  },
+  {
+    id: 9001,
+    title: "Teams Phone call transfer",
+    status: "In development",
+    modified: "2026-10-06T12:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Teams" }] },
+  },
+  {
+    id: 9002,
+    title: "Microsoft Teams: new meeting theme",
+    status: "Launched",
+    modified: "2026-10-06T12:00:00Z",
+    tagsContainer: { products: [{ tagName: "Microsoft Teams" }] },
+  },
+];
+
+function catalogFetcher(messageCenter: unknown, roadmap: unknown): (input: RequestInfo | URL) => Promise<Response> {
+  return async (input) => {
+    const url = String(input);
+    if (url.includes("messages-index")) return Response.json(messageCenter);
+    if (url.includes("releasecommunications")) return Response.json(roadmap);
+    if (url.includes("wikimedia.org")) return Response.json({ items: [] });
+    if (url.includes("hn.algolia.com")) return Response.json({ nbHits: 0, exhaustiveNbHits: true });
+    throw new Error(`unexpected ${url}`);
+  };
+}
+
+describe("microsoft announcement counts", () => {
+  const copilot = resolveSignalProfile({
+    slug: "microsoft-365-copilot",
+    name: "Microsoft 365 Copilot",
+    aliases: [],
+    sourceConfig: {},
+  });
+
+  it("counts a touch on the window boundary and ignores anything outside it", () => {
+    const window = announcementWindow(NOW);
+    expect(window.windowStart).toBe("2026-09-14T15:00:00.000Z");
+    expect(window.asOf).toBe("2026-10-14T15:00:00.000Z");
+    const items: CatalogItem[] = [
+      { id: "start", title: "edge", services: ["Microsoft Copilot (Microsoft 365)"], at: window.windowStart, status: "Launched" },
+      { id: "before", title: "early", services: ["Microsoft Copilot (Microsoft 365)"], at: "2026-09-14T14:59:59.999Z", status: "Launched" },
+      { id: "end", title: "now", services: ["Microsoft Copilot (Microsoft 365)"], at: window.asOf, status: "Rolling out" },
+      { id: "after", title: "future", services: ["Microsoft Copilot (Microsoft 365)"], at: "2026-10-14T15:00:00.001Z", status: "In development" },
+    ];
+    expect(countMatchedAnnouncements(items, copilot, window.startMs, window.endMs)).toEqual({
+      count: 2,
+      byStatus: { Launched: 1, "Rolling out": 1 },
+    });
+  });
+
+  it("stores 30-day announcement counts from the fixture feeds without changing weekly supply", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, "microsoft-365-copilot");
+    insertProduct(sqlite, "teams-phone");
+    insertProduct(sqlite, "microsoft-lists");
+    insertProduct(sqlite, "old-product", 0);
+    const result = await collectWeeklySignals({ DB: db } as Env, {
+      fetch: catalogFetcher(MESSAGE_CENTER_FIXTURE, ROADMAP_FIXTURE),
+      now: NOW,
+    });
+    expect(result.errors).toEqual([]);
+
+    const weekly = signalRows(sqlite);
+    expect(weekly.find((row) => row.slug === "microsoft-365-copilot" && row.source === "message_center")).toMatchObject({
+      week: "2026-10-05",
+      kind: "supply",
+      value: 1,
+    });
+    expect(weekly.find((row) => row.slug === "microsoft-365-copilot" && row.source === "roadmap")).toMatchObject({
+      week: "2026-10-05",
+      kind: "supply",
+      value: 2,
+    });
+    expect(weekly.find((row) => row.slug === "teams-phone" && row.source === "roadmap")?.value).toBe(1);
+    expect(weekly.find((row) => row.slug === "microsoft-lists" && row.source === "roadmap")?.value).toBe(0);
+
+    const announcements = announcementRows(sqlite);
+    expect(announcements.map((row) => row.slug)).toEqual([
+      "microsoft-365-copilot",
+      "microsoft-lists",
+      "teams-phone",
+    ]);
+    expect(announcements.find((row) => row.slug === "microsoft-365-copilot")).toMatchObject({
+      messageCenterCount: 2,
+      roadmapCount: 4,
+      windowStart: "2026-09-14T15:00:00.000Z",
+      asOf: "2026-10-14T15:00:00.000Z",
+    });
+    expect(JSON.parse(announcements.find((row) => row.slug === "microsoft-365-copilot")?.roadmapStatusJson ?? "{}")).toEqual({
+      "In development": 1,
+      "Rolling out": 1,
+      Launched: 1,
+      Cancelled: 1,
+    });
+    expect(announcements.find((row) => row.slug === "teams-phone")).toMatchObject({
+      messageCenterCount: 1,
+      roadmapCount: 1,
+    });
+    expect(JSON.parse(announcements.find((row) => row.slug === "teams-phone")?.roadmapStatusJson ?? "{}")).toEqual({
+      "In development": 1,
+      "Rolling out": 0,
+      Launched: 0,
+    });
+    expect(announcements.find((row) => row.slug === "microsoft-lists")).toMatchObject({
+      messageCenterCount: 0,
+      roadmapCount: 0,
+    });
+
+    const score = await readSupplyDemand(db, "prod-microsoft-365-copilot", NOW);
+    expect(score.label).toBeNull();
+    expect(score.status).toBe("not_enough_data");
+    expect(score.supply).toBeNull();
+
+    const response = await worker.fetch(
+      new Request("http://localhost/api/products/microsoft-365-copilot"),
+      env(db),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      product: {
+        snapshot: null;
+        supplyDemand: { label: string | null; status: string };
+        microsoftInvestment: {
+          windowDays: number;
+          windowStart: string;
+          asOf: string;
+          messageCenter: { available: boolean; count?: number };
+          roadmap: { available: boolean; count?: number; byStatus?: Record<string, number> };
+        };
+      };
+    };
+    expect(body.product.snapshot).toBeNull();
+    expect(body.product.supplyDemand).toMatchObject({ label: null, status: "not_enough_data" });
+    expect(body.product.microsoftInvestment).toEqual({
+      windowDays: 30,
+      windowStart: "2026-09-14T15:00:00.000Z",
+      windowEnd: "2026-10-14T15:00:00.000Z",
+      asOf: "2026-10-14T15:00:00.000Z",
+      messageCenter: { available: true, count: 2 },
+      roadmap: {
+        available: true,
+        count: 4,
+        byStatus: {
+          "In development": 1,
+          "Rolling out": 1,
+          Launched: 1,
+          Cancelled: 1,
+        },
+      },
+    });
+  });
+
+  it("stores a real zero when a feed responds with no items", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, "microsoft-365-copilot");
+    const empty = await collectWeeklySignals({ DB: db } as Env, {
+      fetch: catalogFetcher([], []),
+      now: NOW,
+    });
+    expect(empty.errors).toEqual([]);
+    expect(announcementRows(sqlite)[0]).toMatchObject({
+      slug: "microsoft-365-copilot",
+      messageCenterCount: 0,
+      roadmapCount: 0,
+    });
+    expect(JSON.parse(announcementRows(sqlite)[0]?.roadmapStatusJson ?? "{}")).toEqual({
+      "In development": 0,
+      "Rolling out": 0,
+      Launched: 0,
+    });
+  });
+
+  it("marks only the failed feed unavailable and leaves the weekly supply count in place", async () => {
+    const { sqlite, db } = createDatabase();
+    insertProduct(sqlite, "microsoft-365-copilot");
+    await collectWeeklySignals({ DB: db } as Env, {
+      fetch: catalogFetcher(MESSAGE_CENTER_FIXTURE, ROADMAP_FIXTURE),
+      now: NOW,
+    });
+    expect(signalRows(sqlite).find((row) => row.source === "roadmap")?.value).toBe(2);
+    expect(signalRows(sqlite).find((row) => row.source === "message_center")?.value).toBe(1);
+
+    const roadmapFailed = await collectWeeklySignals({ DB: db } as Env, {
+      fetch: catalogFetcher(MESSAGE_CENTER_FIXTURE, { error: "feed unavailable" }),
+      now: NOW,
+    });
+    expect(roadmapFailed.errors.map((error) => error.source)).toEqual(["roadmap"]);
+    expect(announcementRows(sqlite)[0]).toMatchObject({
+      messageCenterCount: 2,
+      roadmapCount: null,
+      roadmapStatusJson: null,
+    });
+    expect(signalRows(sqlite).find((row) => row.source === "roadmap")?.value).toBe(2);
+
+    const messageCenterFailed = await collectWeeklySignals({ DB: db } as Env, {
+      fetch: catalogFetcher({ error: "index unavailable" }, ROADMAP_FIXTURE),
+      now: NOW,
+    });
+    expect(messageCenterFailed.errors.map((error) => error.source)).toContain("message_center");
+    expect(announcementRows(sqlite)[0]?.messageCenterCount).toBeNull();
+    expect(announcementRows(sqlite)[0]?.roadmapCount).toBe(4);
+    expect(signalRows(sqlite).find((row) => row.source === "message_center")?.value).toBe(1);
+    expect(signalRows(sqlite).find((row) => row.source === "roadmap")?.value).toBe(2);
+    const score = await readSupplyDemand(db, "prod-microsoft-365-copilot", NOW);
+    expect(score.label).toBeNull();
+    expect(score.supply).toBeNull();
   });
 });
 

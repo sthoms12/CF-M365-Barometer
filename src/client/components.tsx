@@ -29,10 +29,27 @@ export function Momentum({ value }: { value: number }) {
 
 export function MicrosoftInvestmentPanel({ investment, compact = false }: { investment?: MicrosoftInvestment; compact?: boolean }) {
   const view = investmentView(investment);
-  const Title = compact ? "p" : "h2";
+  if (compact) {
+    return (
+      <div className="investment investment-compact" aria-label={view.title}>
+        <div className="investment-compact-row">
+          <span className="investment-title">{view.title} (30d)</span>
+          <span className="investment-pill">Roadmap: <strong>{view.roadmap}</strong></span>
+          <span className="investment-pill">Message Center: <strong>{view.messageCenter}</strong></span>
+        </div>
+        {view.statuses.length > 0 && (
+          <div className="investment-status-inline" aria-label="Roadmap status breakdown">
+            {view.statuses.map((line) => (
+              <span key={line.status}>{line.status}: <strong>{line.value}</strong></span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
-    <div className={compact ? "investment investment-compact" : "investment"} aria-label={view.title}>
-      <Title className={compact ? "investment-title" : undefined}>{view.title}</Title>
+    <div className="investment" aria-label={view.title}>
+      <h2>{view.title}</h2>
       <p className="investment-note">{view.label}</p>
       <p>{view.windowLabel}</p>
       <p>{view.asOfLabel}</p>

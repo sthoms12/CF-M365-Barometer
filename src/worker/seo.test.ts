@@ -129,7 +129,9 @@ describe("public HTML", () => {
     expect(html).toContain("<title>M365 Barometer</title>");
     expect(html).toContain(`<link rel="canonical" href="${CANONICAL_ORIGIN}/" />`);
     expect(html).toContain(`<meta property="og:url" content="${CANONICAL_ORIGIN}/" />`);
-    expect(html).toContain(`<meta name="twitter:card" content="summary" />`);
+    expect(html).toContain(`<meta property="og:image" content="${CANONICAL_ORIGIN}/assets/og-m365-barometer.png" />`);
+    expect(html).toContain(`<meta name="twitter:card" content="summary_large_image" />`);
+    expect(html).toContain(`<meta name="twitter:image" content="${CANONICAL_ORIGIN}/assets/og-m365-barometer.png" />`);
     expect(html).toContain(`"@type":"WebSite"`);
     expect(html).toContain(`"@type":"Dataset"`);
     expect(html).toContain("Microsoft 365 Copilot");

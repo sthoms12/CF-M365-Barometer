@@ -284,4 +284,29 @@ describe("public crawl routes", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("60");
   });
+
+  it("attaches security headers to public HTML, API, and 404 responses", async () => {
+    const { bindings } = env();
+    for (const url of ["http://localhost/", "http://localhost/api/health", "http://localhost/does-not-exist"]) {
+      const response = await app.request(url, {}, bindings);
+      expect(response.headers.get("content-security-policy")).toContain("default-src 'self'");
+      expect(response.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+      expect(response.headers.get("permissions-policy")).toBe("camera=(), microphone=(), geolocation=()");
+      expect(response.headers.get("x-frame-options")).toBe("DENY");
+    }
+  });
+
+  it("redirects public *.workers.dev requests to the canonical custom domain", async () => {
+    const { bindings } = env();
+    const response = await app.request("https://m365-barometer.example.workers.dev/products/microsoft-365-copilot/?tab=trend", {}, bindings);
+    expect(response.status).toBe(301);
+    expect(response.headers.get("location")).toBe("https://www.m365-barometer.com/products/microsoft-365-copilot?tab=trend");
+    expect(response.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
+
+    // API calls on workers.dev stay reachable (e.g. external ingestion bot).
+    const apiResponse = await app.request("https://m365-barometer.example.workers.dev/api/health", {}, bindings);
+    expect(apiResponse.status).toBe(200);
+  });
 });

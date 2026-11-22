@@ -20,6 +20,7 @@ import { rateLimitPublicApi } from "./rate-limit";
 import { bearerAuth } from "./security";
 import { backfillSignalHistory, ingestExternalSignals, readSupplyDemand } from "./signals";
 import {
+  CANONICAL_ORIGIN,
   applySeoToShell,
   buildAboutPage,
   buildHomePage,
@@ -43,20 +44,77 @@ const HTML_HEADERS = {
   "cache-control": "public, max-age=300",
 };
 
+// Hash of the <noscript><style> rule in index.html so no 'unsafe-inline' is needed in style-src.
+const NOSCRIPT_STYLE_HASH = "'sha256-tPLngu2SYtCi9m+3RsEaUlBzkEuM+m0L+qmkbtcJAYc='";
+
+export const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "script-src 'self' https://static.cloudflareinsights.com https://glass-portfolio.sthoms105.workers.dev",
+    "script-src-attr 'none'",
+    `style-src 'self' ${NOSCRIPT_STYLE_HASH}`,
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self' https://cloudflareinsights.com https://glass-portfolio.sthoms105.workers.dev",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'none'",
+    "upgrade-insecure-requests",
+  ].join("; "),
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "X-Frame-Options": "DENY",
+};
+
+function applySecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 app.onError((error, context) => {
   console.error(JSON.stringify({ event: "request_error", message: error.message, path: context.req.path }));
-  return context.json({ error: "Internal server error" }, 500);
+  return applySecurityHeaders(context.json({ error: "Internal server error" }, 500));
 });
 
 app.use("*", async (context, next) => {
+  const url = new URL(context.req.url);
   const path = context.req.path;
   const method = context.req.method;
-  if ((method === "GET" || method === "HEAD") && path.length > 1 && path.endsWith("/") && !isApiPath(path)) {
-    const url = new URL(context.req.url);
-    url.pathname = path.replace(/\/+$/, "") || "/";
-    return context.redirect(`${url.pathname}${url.search}`, 301);
+
+  // Redirect public traffic hitting the default *.workers.dev hostname to the
+  // canonical custom domain so search engines do not index a duplicate host.
+  if (
+    (method === "GET" || method === "HEAD") &&
+    url.hostname.endsWith(".workers.dev") &&
+    !isApiPath(path)
+  ) {
+    const targetPath = path.length > 1 ? path.replace(/\/+$/, "") || "/" : path;
+    context.res = applySecurityHeaders(
+      context.redirect(`${CANONICAL_ORIGIN}${targetPath}${url.search}`, 301),
+    );
+    return;
   }
+
+  if ((method === "GET" || method === "HEAD") && path.length > 1 && path.endsWith("/") && !isApiPath(path)) {
+    url.pathname = path.replace(/\/+$/, "") || "/";
+    context.res = applySecurityHeaders(context.redirect(`${url.pathname}${url.search}`, 301));
+    return;
+  }
+
   await next();
+  context.res = applySecurityHeaders(context.res);
 });
 
 app.use("/api/*", rateLimitPublicApi());

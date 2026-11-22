@@ -271,6 +271,10 @@ describe("public HTML", () => {
     expect(withCounts).not.toContain("Message Center: <strong>0</strong>");
     expect(withCounts).not.toContain("Message Center: 0");
     expect(home).toContain("investment-compact");
+    expect(home).toContain("investment-compact-row");
+    expect(home).toContain("investment-pill");
+    expect(home).toContain('href="/methodology"');
+    expect(home).toContain("<span>Methodology</span>");
     expect(home).toContain("Barometer score: 72/100");
     expect(home).toContain("Roadmap: <strong>4</strong>");
     expect(html).toContain("As of not available");

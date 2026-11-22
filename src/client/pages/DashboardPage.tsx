@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ProductSummary } from "../../shared/contracts";
 import { homeSectionCopy, homeSectionOrder, type HomeSections } from "../../shared/home";
 import { api } from "../api";
@@ -10,12 +10,23 @@ type HomeResponse = { sections: HomeSections };
 export function DashboardPage() {
   const [data, setData] = useState<HomeResponse | null>(readHomeBootstrap);
   const [error, setError] = useState("");
-  useEffect(() => {
-    api<HomeResponse>("/api/home").then((response) => {
+  const loadHome = useCallback((signal?: AbortSignal) => {
+    setError("");
+    api<HomeResponse>("/api/home", { signal }).then((response) => {
+      if (signal?.aborted) return;
       setData(response);
       try { (window as unknown as { glass?: { capture: (event: string) => void } }).glass?.capture("status_checked"); } catch { /* analytics is best-effort */ }
-    }).catch((err: Error) => setError(err.message));
+    }).catch((err: unknown) => {
+      if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
+      setError(err instanceof Error ? err.message : "Could not load dashboard readings.");
+    });
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadHome(controller.signal);
+    return () => controller.abort();
+  }, [loadHome]);
 
   return (
     <main>
@@ -30,7 +41,14 @@ export function DashboardPage() {
           <span>Score measures sentiment. Momentum measures change from the previous reading.</span>
         </div>
       </section>
-      {error && <p className="error-banner">{error}</p>}
+      {error && (
+        <div className="error-banner" role="alert">
+          <span>{error}</span>
+          <button type="button" className="primary-button" onClick={() => loadHome()}>
+            Retry
+          </button>
+        </div>
+      )}
       <div className="dashboard-sections">
         {homeSectionOrder.map((key) => {
           const copy = homeSectionCopy[key];

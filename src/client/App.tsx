@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
-import { Activity, Gauge, RefreshCw } from "lucide-react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Activity, BookOpen, Gauge, LayoutGrid } from "lucide-react";
+import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { DashboardPage } from "./pages/DashboardPage";
 
 const loadProductsPage = () => import("./pages/ProductsPage");
@@ -37,9 +37,10 @@ function Header() {
         <span className="brand-mark"><Gauge size={20} /></span>
         <span>M365 Barometer</span>
       </NavLink>
-      <nav aria-label="Primary navigation">
-        <NavLink to="/" end><Activity size={16} /> Dashboard</NavLink>
-        <NavLink to="/products"><RefreshCw size={16} /> Products</NavLink>
+      <nav className="nav-links" aria-label="Primary navigation">
+        <NavLink to="/" end><Activity size={16} /> <span>Dashboard</span></NavLink>
+        <NavLink to="/products"><LayoutGrid size={16} /> <span>Products</span></NavLink>
+        <a href="/methodology"><BookOpen size={16} /> <span>Methodology</span></a>
       </nav>
     </header>
   );
@@ -47,6 +48,29 @@ function Header() {
 
 function RouteFallback() {
   return <main className="page-shell" aria-busy="true" />;
+}
+
+export function NotFoundPage() {
+  return (
+    <main className="page-shell">
+      <div className="error-panel not-found-panel">
+        <p className="eyebrow">404 — Page not found</p>
+        <h1>This barometer route does not exist.</h1>
+        <p>The page you requested could not be found. Browse the live Microsoft 365 sentiment dashboard or product directory below.</p>
+        <div className="error-actions">
+          <Link className="primary-button" to="/">
+            Back to Dashboard
+          </Link>
+          <Link className="secondary-link" to="/products">
+            Browse all products
+          </Link>
+          <a className="secondary-link" href="/methodology">
+            Read methodology
+          </a>
+        </div>
+      </div>
+    </main>
+  );
 }
 
 export function App() {
@@ -58,6 +82,7 @@ export function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/products" element={<CurrentProductsPage />} />
           <Route path="/products/:slug" element={<CurrentProductPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
     </>

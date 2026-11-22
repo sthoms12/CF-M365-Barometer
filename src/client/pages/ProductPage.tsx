@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import type { ProductSummary, SupplyDemandScore } from "../../shared/contracts";
 import { api, formatDate } from "../api";
 import { readProductBootstrap } from "../bootstrap";
@@ -36,21 +36,93 @@ export function ProductPage() {
   const matched = initial && initial.product.slug === slug ? initial : null;
   const [detail, setDetail] = useState<Detail | null>(matched ? { product: matched.product, mentions: matched.mentions } : null);
   const [history, setHistory] = useState<Array<{ analyzedAt: string; barometerScore: number }>>(matched?.history ?? []);
-  useEffect(() => {
+  const [loading, setLoading] = useState<boolean>(!matched);
+  const [error, setError] = useState<string>("");
+
+  const loadProduct = useCallback((currentSlug: string | undefined, signal?: AbortSignal) => {
+    if (!currentSlug) {
+      setError("Product not found.");
+      setLoading(false);
+      return;
+    }
     const next = readProductBootstrap();
-    if (!next || next.product.slug !== slug) {
+    const hasBootstrapMatch = Boolean(next && next.product.slug === currentSlug);
+    if (!hasBootstrapMatch) {
       setDetail(null);
       setHistory([]);
+      setLoading(true);
     }
-    api<Detail>(`/api/products/${slug}`).then(setDetail);
-    api<{ history: Array<{ analyzedAt: string; barometerScore: number }> }>(`/api/products/${slug}/history`).then((data) => setHistory(data.history));
-  }, [slug]);
+    setError("");
+    Promise.all([
+      api<Detail>(`/api/products/${encodeURIComponent(currentSlug)}`, { signal }),
+      api<{ history: Array<{ analyzedAt: string; barometerScore: number }> }>(
+        `/api/products/${encodeURIComponent(currentSlug)}/history`,
+        { signal },
+      ),
+    ])
+      .then(([detailData, historyData]) => {
+        if (signal?.aborted) return;
+        setDetail(detailData);
+        setHistory(historyData.history);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
+        setError(err instanceof Error ? err.message : "Could not load product reading.");
+        setLoading(false);
+      });
+  }, []);
 
-  if (!detail) return <main className="page-shell"><EmptyState message="Loading product reading..." /></main>;
+  useEffect(() => {
+    const controller = new AbortController();
+    loadProduct(slug, controller.signal);
+    return () => controller.abort();
+  }, [slug, loadProduct]);
+
+  if (!detail) {
+    if (error) {
+      return (
+        <main className="page-shell">
+          <div className="error-panel" role="alert">
+            <p className="eyebrow">Product reading unavailable</p>
+            <h1>Unable to load product reading</h1>
+            <p>{error}</p>
+            <div className="error-actions">
+              <button type="button" className="primary-button" onClick={() => loadProduct(slug)}>
+                Retry
+              </button>
+              <Link className="secondary-link" to="/products">
+                All products
+              </Link>
+              <Link className="secondary-link" to="/">
+                Dashboard
+              </Link>
+            </div>
+          </div>
+        </main>
+      );
+    }
+    return (
+      <main className="page-shell">
+        <EmptyState message={loading ? "Loading product reading..." : "Product reading unavailable."} />
+      </main>
+    );
+  }
   const { product, mentions } = detail;
   const snapshot = product.snapshot;
+  const maxSourceCount = snapshot
+    ? Math.max(1, ...Object.values(snapshot.sourceBreakdown))
+    : 1;
   return (
     <main className="page-shell">
+      {error && (
+        <div className="error-panel" role="alert">
+          <p>{error}</p>
+          <button type="button" className="primary-button" onClick={() => loadProduct(slug)}>
+            Retry
+          </button>
+        </div>
+      )}
       <section className="product-hero">
         <div>
           <p className="eyebrow">Microsoft 365 community barometer</p>
@@ -85,7 +157,7 @@ export function ProductPage() {
             <h2>Source breakdown</h2>
             <div className="source-bars">
               {Object.entries(snapshot.sourceBreakdown).map(([source, count]) => (
-                <div key={source}><span>{source}</span><div><i style={{ width: `${Math.min(100, count * 5)}%` }} /></div><strong>{count}</strong></div>
+                <div key={source}><span>{source}</span><div><i style={{ width: `${Math.min(100, Math.round((count / maxSourceCount) * 100))}%` }} /></div><strong>{count}</strong></div>
               ))}
             </div>
           </section>

@@ -424,6 +424,8 @@ export function buildProductPage(
   };
 }
 
+export const OG_IMAGE_URL = `${CANONICAL_ORIGIN}/assets/og-m365-barometer.png`;
+
 export function applySeoToShell(shell: string, page: PublicPage): string {
   const title = escapeHtml(page.title);
   const description = escapeHtml(page.description);
@@ -435,9 +437,14 @@ export function applySeoToShell(shell: string, page: PublicPage): string {
     `<meta property="og:title" content="${title}" />`,
     `<meta property="og:description" content="${description}" />`,
     `<meta property="og:url" content="${canonical}" />`,
-    `<meta name="twitter:card" content="summary" />`,
+    `<meta property="og:image" content="${OG_IMAGE_URL}" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta property="og:image:alt" content="M365 Barometer — Public sentiment trends for Microsoft 365 products" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${title}" />`,
     `<meta name="twitter:description" content="${description}" />`,
+    `<meta name="twitter:image" content="${OG_IMAGE_URL}" />`,
     jsonLdScript(page.jsonLd),
   ].join("");
 

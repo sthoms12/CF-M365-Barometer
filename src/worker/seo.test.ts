@@ -126,7 +126,7 @@ describe("sitemap.xml", () => {
 describe("public HTML", () => {
   it("injects canonical, social tags, JSON-LD, and stored product copy into the shell", () => {
     const html = applySeoToShell(shell, buildHomePage([reading, product({ slug: "teams-phone", name: "Teams Phone", snapshot: null })]));
-    expect(html).toContain("<title>M365 Barometer</title>");
+    expect(html).toContain("<title>M365 Barometer | Microsoft 365 Sentiment, Issues &amp; Trends</title>");
     expect(html).toContain(`<link rel="canonical" href="${CANONICAL_ORIGIN}/" />`);
     expect(html).toContain(`<meta property="og:url" content="${CANONICAL_ORIGIN}/" />`);
     expect(html).toContain(`<meta property="og:image" content="${CANONICAL_ORIGIN}/assets/og-m365-barometer.png" />`);

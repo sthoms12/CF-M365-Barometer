@@ -43,7 +43,7 @@ const AI_CRAWLERS = [
   "Bingbot",
 ] as const;
 
-const SITE_DESCRIPTION = "Public sentiment trends for Microsoft 365 products.";
+const SITE_DESCRIPTION = "Weekly public sentiment, user issues, and community trends for Microsoft 365 products including Teams, Copilot, Outlook, Exchange, and SharePoint.";
 export const DATASET_LICENSE = "https://creativecommons.org/licenses/by/4.0/";
 
 export type SitemapEntry = {
@@ -168,7 +168,7 @@ export function buildHomePage(products: ProductSummary[]): PublicPage {
   </main>`;
   const mainHtml = `<div class="crawl-copy">${semantic}</div>${renderHomeAppShell(products)}`;
   return {
-    title: "M365 Barometer",
+    title: "M365 Barometer | Microsoft 365 Sentiment, Issues & Trends",
     description: SITE_DESCRIPTION,
     canonicalPath: "/",
     mainHtml,

@@ -132,6 +132,8 @@ export function sitemapEntries(products: Array<{ slug: string; lastModified: str
     { path: "/products", lastModified: latest },
     { path: "/methodology", lastModified: null },
     { path: "/about", lastModified: null },
+    { path: "/privacy", lastModified: null },
+    { path: "/terms", lastModified: null },
     ...pages.map((product) => ({
       path: `/products/${encodeURIComponent(product.slug)}`,
       lastModified: product.lastModified,
@@ -339,6 +341,90 @@ export function buildAboutPage(): PublicPage {
         paragraphs: [
           `Public data on this site is licensed under ${link(DATASET_LICENSE, "CC BY 4.0")}.`,
         ],
+      },
+    ],
+  });
+}
+
+const LEGAL_EFFECTIVE = "Effective November 23, 2026.";
+
+export function buildPrivacyPage(): PublicPage {
+  return buildDocPage({
+    heading: "Privacy",
+    title: "Privacy | M365 Barometer",
+    description: "M365 Barometer privacy policy: no accounts, no cookies, and cookieless self-hosted Dataflare analytics.",
+    canonicalPath: "/privacy",
+    eyebrow: "Policy",
+    ledeHtml: `M365 Barometer is a free, independent, non-commercial project. There are no accounts, no sign-ups, no advertising, and no cookies. ${LEGAL_EFFECTIVE}`,
+    sections: [
+      {
+        heading: "Analytics (Dataflare)",
+        paragraphs: [
+          "This site uses Dataflare, an analytics tool we self-host in our own Cloudflare account. It is cookieless — it sets no cookies and stores nothing on your device. It collects pageviews, the referring site, basic device and browser information, and anonymous interaction events (such as a status check), never personal information. Analytics data is kept for 90 days and is never sold or shared.",
+        ],
+      },
+      {
+        heading: "Hosting and rate limiting",
+        paragraphs: [
+          "The site and public API run on Cloudflare Workers. Cloudflare processes standard request information such as IP address, requested URL, and browser details to deliver the site, protect it, and enforce public API rate limits.",
+        ],
+      },
+      {
+        heading: "Public signals",
+        paragraphs: [
+          "The dashboard summarizes publicly available sources. It does not collect information from visitors to build those readings. Links to other websites are governed by their own privacy policies.",
+        ],
+      },
+      {
+        heading: "Changes",
+        paragraphs: ["If this policy changes, the effective date above will be updated."],
+      },
+    ],
+  });
+}
+
+export function buildTermsPage(): PublicPage {
+  return buildDocPage({
+    heading: "Terms",
+    title: "Terms | M365 Barometer",
+    description: "M365 Barometer terms of use: a free, independent, non-commercial project provided as is.",
+    canonicalPath: "/terms",
+    eyebrow: "Policy",
+    ledeHtml: `M365 Barometer is operated as a free, independent, non-commercial project. ${LEGAL_EFFECTIVE}`,
+    sections: [
+      {
+        heading: "Independence and trademarks",
+        paragraphs: [
+          "M365 Barometer is not affiliated with, endorsed by, or sponsored by Microsoft. Microsoft, Microsoft 365, and related product names are trademarks of Microsoft Corporation.",
+        ],
+      },
+      {
+        heading: "Informational only",
+        paragraphs: [
+          "Readings are community trend signals, not official vendor metrics, and are not investment, purchasing, or licensing advice.",
+        ],
+      },
+      {
+        heading: "Data license and API",
+        paragraphs: [
+          `Public data is licensed under ${link(DATASET_LICENSE, "CC BY 4.0")}. The public API is rate limited. Do not abuse, overload, or attempt to bypass its limits.`,
+        ],
+      },
+      {
+        heading: "Provided as is",
+        paragraphs: [
+          "The site, data, and API are provided “as is” and “as available,” without warranties of any kind, express or implied, including accuracy, completeness, availability, and fitness for a particular purpose. There is no commercial support or service-level commitment.",
+        ],
+      },
+      {
+        heading: "Limitation of liability",
+        paragraphs: [
+          "To the fullest extent permitted by law, the operator of M365 Barometer is not liable for any direct, indirect, incidental, or consequential loss arising from use of, or reliance on, the site, data, or API.",
+        ],
+      },
+      {
+        heading: "Changes",
+        paragraphs: ["These terms may change. Continued use after an update means you accept the revised terms."],
       },
     ],
   });

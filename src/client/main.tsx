@@ -21,8 +21,9 @@ function mount() {
 
 const routeReady = preloadCurrentRoute();
 const path = window.location.pathname.replace(/\/+$/, "") || "/";
-// /methodology and /about are server-rendered documents. Leave that HTML in #root.
-if (path !== "/methodology" && path !== "/about") {
+// /methodology, /about, /privacy, and /terms are server-rendered documents. Leave that HTML in #root.
+const SERVER_DOCS = new Set(["/methodology", "/about", "/privacy", "/terms"]);
+if (!SERVER_DOCS.has(path)) {
   if (path === "/") mount();
   else void routeReady.then(mount);
 }

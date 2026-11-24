@@ -23,6 +23,8 @@ import {
   CANONICAL_ORIGIN,
   applySeoToShell,
   buildAboutPage,
+  buildPrivacyPage,
+  buildTermsPage,
   buildHomePage,
   buildMethodologyPage,
   buildProductPage,
@@ -303,6 +305,10 @@ app.get("/methodology", (context) => renderPreparedPage(context, buildMethodolog
 app.get("/methodology.md", (context) => renderPreparedPage(context, buildMethodologyPage(), true));
 app.get("/about", (context) => renderPreparedPage(context, buildAboutPage(), wantsMarkdown(context)));
 app.get("/about.md", (context) => renderPreparedPage(context, buildAboutPage(), true));
+app.get("/privacy", (context) => renderPreparedPage(context, buildPrivacyPage(), wantsMarkdown(context)));
+app.get("/privacy.md", (context) => renderPreparedPage(context, buildPrivacyPage(), true));
+app.get("/terms", (context) => renderPreparedPage(context, buildTermsPage(), wantsMarkdown(context)));
+app.get("/terms.md", (context) => renderPreparedPage(context, buildTermsPage(), true));
 
 function wantsMarkdown(context: { req: { header: (name: string) => string | undefined } }): boolean {
   return (context.req.header("accept") ?? "").toLowerCase().includes("text/markdown");

@@ -415,7 +415,7 @@ export function buildProductPage(
   </main>`;
   const mainHtml = `<div class="crawl-copy">${semantic}</div>${renderProductAppShell(product, mentions, history)}`;
   return {
-    title: `${product.name} | M365 Barometer`,
+    title: `${product.name} Sentiment & User Issues | M365 Barometer`,
     description,
     canonicalPath: path,
     mainHtml,

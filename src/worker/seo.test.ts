@@ -171,7 +171,7 @@ describe("public HTML", () => {
       sentiment: "positive",
       excerpt: "Helpful for drafts.",
     }]));
-    expect(html).toContain("<title>Microsoft 365 Copilot | M365 Barometer</title>");
+    expect(html).toContain("<title>Microsoft 365 Copilot Sentiment &amp; User Issues | M365 Barometer</title>");
     expect(html).toContain(`href="${CANONICAL_ORIGIN}/products/microsoft-365-copilot"`);
     expect(html).toContain("Useful drafts");
     expect(html).toContain("Hallucinations");
